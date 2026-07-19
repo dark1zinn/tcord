@@ -1,0 +1,3 @@
+# Nix environment
+.direnv/
+.venv/
