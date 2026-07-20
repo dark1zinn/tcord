@@ -9,7 +9,9 @@ authors = [
     { name = "dark1zinn", email = "dark1zinn00@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "maturin>=1.14.1",
+]
 
 [tool.uv.workspace]
 members = ["./pkgs/*"]
