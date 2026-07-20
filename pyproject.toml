@@ -4,10 +4,6 @@
 [project]
 name = "workspace"
 version = "0.0.1"
-readme = "README.md"
-authors = [
-    { name = "dark1zinn", email = "dark1zinn00@gmail.com" }
-]
 requires-python = ">=3.14"
 dependencies = [
     "maturin>=1.14.1",

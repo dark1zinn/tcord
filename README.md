@@ -1,7 +1,7 @@
 # TCORD
 
 That one TUI client you love!<br>
-tcord (ticord, `/ˈtiː kɔːrd/`) is aimed to be simple and don't do much, for now<br>
+tcord (*ticord*, `/ˈtiː kɔːrd/`) is aimed to be simple and don't do much, for now<br>
 the primary goal it has is to get the basics right, giving you the features of daily use<br>
 then don't expect much from it other than the default experience hidden in a cute UI
 
@@ -15,7 +15,7 @@ Just make sure to go through the existent issues/prs to avoid duplicates
 
 It is **HIGHLY** recommended that you use an Nix environment + [`direnv`](https://github.com/direnv/direnv)
 this makes light-years easier to boot up the needed dependencies including any quirks that might be necessary<br>
-If you do have Nix and direnv, just run `direnv allow` at the project repo and wait for it to build the environment,
+If you do have Nix and direnv, just run `direnv allow` at the project root and wait for it to build the environment,
 it may be slow on the first time
 
 > ![WARN]
@@ -47,11 +47,11 @@ Or `just -l` to get a list of available commands and their respective documentat
 
 Glad you asked!<br>
 Well, first of all, the majority of this app, as of now, is intended to be in Python<br>
-- `Then why don't you keep it 100% Python?`
+- `Then why don't you keep it 100% Python?`<br>
 I could, but for some features/capabilities it's a good option to actually
 hand off the heavy work, voicechat handling for example, out of the way so the Python code
-is free to manage the app state and ui without the concerned of being blocked<br>
-- `But why Rust specifically?`
+is free to manage the app state and ui without the concern of being blocked<br>
+- `But why Rust specifically?`<br>
 I guess we all know Rust is memory-safe and a pain in the ass until the code is right, then
 I (dark1zin) can benefit from that on a way where the compiler will prevent me from shooting myself on the foot<br>
 But the actual reason, despite my lack of intelligence, is that it already have very good and stable implementations

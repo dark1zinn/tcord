@@ -1,12 +1,12 @@
 
+[arg('name', pattern='^[a-zA-Z0-9_-]+$')]
 [arg('what', pattern='glue|lib')]
 new what name:
-    {{
+    mkdir -p ./pkgs/{{name}}
+    cd ./pkgs/{{name}} && {{
         if what == "glue" {
-            "mkdir -p ./pkgs/"+name+" && cd ./pkgs/"+name+" && uv run maturin init --bindings pyo3"
-        } else if what == "lib" {
-            "mkdir -p ./pkgs/"+name+" && cd ./pkgs/"+name+" && uv init --lib ."
+            "uv run maturin init --bindings pyo3"
         } else {
-            "echo Uncaught!"
+            "uv init --lib ."
         }
     }}
