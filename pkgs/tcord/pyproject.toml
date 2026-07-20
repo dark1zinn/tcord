@@ -7,8 +7,9 @@ authors = [
     { name = "dark1zinn", email = "dark1zinn00@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "nuitka>=4.1.3",
+]
 
-[build-system]
-requires = ["uv_build>=0.11.28,<0.12.0"]
-build-backend = "uv_build"
+[project.scripts]
+main = "tcord:main"

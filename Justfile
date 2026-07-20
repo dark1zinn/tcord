@@ -1,4 +1,11 @@
+alias b := tcord::build
+alias r := tcord::run
 
+# Workspace recipe modules
+# App build recipes
+mod tcord './pkgs/tcord/mod.just'
+
+# Create a new pkg
 [arg('name', pattern='^[a-zA-Z0-9_-]+$')]
 [arg('what', pattern='glue|lib')]
 new what name:

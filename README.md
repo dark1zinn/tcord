@@ -40,8 +40,9 @@ On what this project depends to build:
   - `other...`
 
 Then check the `Justfile`s around for a good insight on what to do next<br>
-Or `just -l` to get a list of available commands and their respective documentation
-> More information about this part will be added soon, for now this should be enough for you to start
+Or `just -l` to get a list of available commands and their respective documentation<br>
+> Run `just b` to compile the binary then use `just r -b` to run it
+> more information about this part will be added soon, for now this should be enough for you to start
 
 #### Why there is Rust being used you ask?
 
