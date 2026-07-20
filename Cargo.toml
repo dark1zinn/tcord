@@ -1,0 +1,6 @@
+# This is just the workspace definition
+# For the actual app package see ./pkgs/tcord
+
+[workspace]
+members = ["./pkgs/*"]
+resolver = "2"

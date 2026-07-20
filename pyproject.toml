@@ -1,0 +1,15 @@
+# This is just the workspace definition
+# For the actual app package see ./pkgs/tcord
+
+[project]
+name = "workspace"
+version = "0.0.1"
+readme = "README.md"
+authors = [
+    { name = "dark1zinn", email = "dark1zinn00@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["./pkgs/*"]
