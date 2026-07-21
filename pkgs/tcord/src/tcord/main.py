@@ -1,6 +1,8 @@
 import sys
 import click
 
+from tui import Tui
+
 @click.group(invoke_without_command=True)
 @click.pass_context
 @click.option("--debug", is_flag=True)
@@ -15,6 +17,7 @@ def main(ctx, debug):
 
     if ctx.invoked_subcommand is None:
         print("Hello tcord UI!")
+        Tui().run()
         # Click does provides helpers for exiting the program, afaik
         # these should be applied instead of a sys.exit()
         sys.exit(0)
