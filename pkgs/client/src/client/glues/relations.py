@@ -1,7 +1,7 @@
 from typing import List, Any
 
-from .models import Channel, Guild, User
-from .protocols import RelationsProtocol
+from ..models import Channel, Guild, User
+from ..protocols import RelationsProtocol
 
 class Relations(RelationsProtocol):
     def __init__(self, engine: Any):

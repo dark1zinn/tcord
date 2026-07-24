@@ -1,6 +1,6 @@
 from typing import Dict, Any
 
-from .protocols import AuthProtocol
+from ..protocols import AuthProtocol
 
 class Auth(AuthProtocol):
     def __init__(self, engine: Any):

@@ -1,7 +1,5 @@
 from .protocols import ClientProtocol
-from .auth import Auth
-from .relations import Relations
-from .messaging import Messaging
+from .glues import Auth, Relations, Messaging
 
 class TcordClient(ClientProtocol):
 
