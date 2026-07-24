@@ -32,6 +32,24 @@ class ChannelMarker:
 class RoleMarker:
     mention_prefix = "@&"
 
+class MessageMarker:
+    mention_prefix = "" # Idk, needs more research on that
+
+class GuildMarker:
+    mention_prefix = ""
+
+class EmojiMarker:
+    mention_prefix = ""
+
+class AttachmentMarker:
+    mention_prefix = ""
+
+class ApplicationMarker:
+    mention_prefix = ""
+
+class ForumTagMarker:
+    mention_prefix = ""
+
 # 3. The TypeVar bound to our Protocol
 M = TypeVar('M', bound=MentionMarker)
 
@@ -50,6 +68,12 @@ class Id(Generic[M]):
 UserId = Id[UserMarker]
 ChannelId = Id[ChannelMarker]
 RoleId = Id[RoleMarker]
+MessageId = Id[MessageMarker]
+GuildId = Id[GuildMarker]
+EmojiId = Id[EmojiMarker]
+AttachmentId = Id[AttachmentMarker]
+ApplicationId = Id[ApplicationMarker]
+ForumTagId = Id[ForumTagMarker]
 
 # --- Usage Examples ---
 
