@@ -2,7 +2,7 @@ from typing import Any, Callable, Awaitable, List
 import asyncio
 
 from ..protocols import MessagingProtocol
-from ..models import Message
+from ..models import MessageInfo
 
 class Messaging(MessagingProtocol):
     def __init__(self, engine: Any):

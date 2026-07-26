@@ -5,3 +5,7 @@ class Channel:
     id: str
     name: str
     is_dm: bool
+
+__all__ = [
+    'Channel'
+]

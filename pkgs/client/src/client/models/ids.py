@@ -1,4 +1,4 @@
-from typing import Protocol, TypeVar, Generic
+from typing import Protocol, TypeVar, Generic, Optional
 
 # Types adapted from Concord <https://github.com/chojs23/concord>
 # Licenced under the GPL-3.0 License (https://github.com/chojs23/concord?tab=GPL-3.0-1-ov-file)
@@ -82,3 +82,25 @@ ForumTagId = Id[ForumTagMarker]
 
 # print(my_user_id.to_mention())     # Output: <@123456789>
 # print(my_channel_id.to_mention())  # Output: <#987654321>
+
+__all__ = [
+    'Id',
+    'UserId',
+    'ChannelId',
+    'RoleId',
+    'MessageId',
+    'GuildId',
+    'EmojiId',
+    'AttachmentId',
+    'ApplicationId',
+    'ForumTagId',
+    'UserMarker',
+    'ChannelMarker',
+    'RoleMarker',
+    'MessageMarker',
+    'GuildMarker',
+    'EmojiMarker',
+    'AttachmentMarker',
+    'ApplicationMarker',
+    'ForumTagMarker',
+]

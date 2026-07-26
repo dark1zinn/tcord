@@ -147,3 +147,34 @@ class MessageSnapshotInfo:
     embeds: List[EmbedInfo]
     source_channel_id: Optional[ChannelId]
     timestamp: Optional[str]
+
+@dataclass
+class MessageAttachmentUpload:
+    source: UploadSource
+    filename: str
+    size_bytes: int # u64
+
+UploadSource = Union[
+    str, # File(PathBuf)
+    List[int] # Bytes(Vec<u8>)
+]
+
+__all__ = [
+    'MessageInfo',
+    'ReplyReference',
+    'MessageKind',
+    'MessageInteractionInfo',
+    'MessageReferenceInfo',
+    'ReplyInfo',
+    'MentionInfo',
+    'PollInfo',
+    'PollAnswerInfo',
+    'ReactionInfo',
+    'ReactionEmoji',
+    'AttachmentInfo',
+    'EmbedInfo',
+    'EmbedFieldInfo',
+    'MessageSnapshotInfo',
+    'MessageAttachmentUpload',
+    'UploadSource'
+]

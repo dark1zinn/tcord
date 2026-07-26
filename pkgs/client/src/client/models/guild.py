@@ -8,3 +8,7 @@ class Guild:
     id: str
     name: str
     channels: List[Channel]
+
+__all__ = [
+    'Guild'
+]

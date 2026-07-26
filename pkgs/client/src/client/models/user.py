@@ -4,3 +4,7 @@ from dataclasses import dataclass
 class User:
     id: str
     username: str
+
+__all__ = [
+    'User'
+]
