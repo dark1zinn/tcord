@@ -1,34 +1,24 @@
 import sys
-import click
 
+import click
+from client import TcordClient
+from tcord_core import Session
 from tui import Tui
+
 
 @click.group(invoke_without_command=True)
 @click.pass_context
 @click.option("--debug", is_flag=True)
-def main(ctx, debug):
-    # When passing options in front of a Just call it will try to pickup the option
-    # thus returning an error since the option probably doesn't exist in the recipe
-    # to mitigate that pass `--` before the option for the cli
-    # Example: `just r -- --debug`
-    # this is only necessary for options before any subcommand
+def main(ctx: click.Context, debug: bool) -> None:
     if debug:
-        print(f"THIS IS MAIN:\n  argc: {len(sys.argv)}\n  argv: {sys.argv}\n")
-
+        print(f"argc: {len(sys.argv)}\nargv: {sys.argv}")
     if ctx.invoked_subcommand is None:
-        print("Hello tcord UI!")
-        Tui().run()
-        # Click does provides helpers for exiting the program, afaik
-        # these should be applied instead of a sys.exit()
-        sys.exit(0)
-    
-    # We can't exit here since other commands need to be processed
-    # e.g. exiting here defeats a CLI purpose
-    # sys.exit(0)
+        Tui(TcordClient(Session())).run()
 
-# This is adummy command for testing
+
 @main.command()
 @click.argument("url")
-def join(url):
-    print(f"Joining server at {url}")
-    sys.exit(0)
+def join(url: str) -> None:
+    raise click.ClickException(
+        f"Joining servers is not available in the base chat milestone: {url}"
+    )

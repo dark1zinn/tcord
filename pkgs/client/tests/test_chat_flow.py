@@ -78,6 +78,7 @@ class ChatFlowTest(unittest.IsolatedAsyncioTestCase):
         self.fail("fixture login did not authenticate")
 
     async def asyncTearDown(self) -> None:
+        await self.client.auth.logoff()
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()

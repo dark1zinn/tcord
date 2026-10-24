@@ -8,10 +8,16 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "client",
     "click>=8.4.2",
     "nuitka>=4.1.3",
+    "tcord-core",
     "textual>=8.2.8",
 ]
+
+[tool.uv.sources]
+client = { workspace = true }
+tcord-core = { workspace = true }
 
 [project.scripts]
 main = "tcord:main"
