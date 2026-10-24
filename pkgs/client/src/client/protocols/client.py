@@ -1,11 +1,13 @@
 from typing import Protocol
 
 from .auth import AuthProtocol
-from .relations  import RelationsProtocol
-from .messaging import MessagingProtocol
+from .channel import ChannelProtocol
+from .relations import RelationsProtocol
+
 
 class ClientProtocol(Protocol):
-    """The main governor contract."""
+    """Transport-agnostic client surface consumed by the TUI."""
+
     auth: AuthProtocol
     relations: RelationsProtocol
-    messaging: MessagingProtocol
+    channel: ChannelProtocol

@@ -1,13 +1,13 @@
+from typing import Any
+
+from .glues import Auth, Channel, Relations
 from .protocols import ClientProtocol
-from .glues import Auth, Relations, Messaging
+
 
 class TcordClient(ClientProtocol):
+    """Compose presentation-facing services around a Rust-backed engine."""
 
-    def __init__(self):
-        # Instantiate your backend core here (e.g., the compiled PyO3 module)
-        self._engine = None
-
-        # Compose the feature classes, injecting the engine
-        self.auth = Auth(self._engine)
-        self.relations = Relations(self._engine)
-        self.messaging = Messaging(self._engine)
+    def __init__(self, engine: Any) -> None:
+        self.auth = Auth(engine)
+        self.relations = Relations(engine)
+        self.channel = Channel(engine)
