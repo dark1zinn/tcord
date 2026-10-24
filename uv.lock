@@ -156,14 +156,18 @@ version = "0.0.1"
 source = { virtual = "pkgs/tcord" }
 dependencies = [
     { name = "click" },
+    { name = "client" },
     { name = "nuitka" },
+    { name = "tcord-core" },
     { name = "textual" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.4.2" },
+    { name = "client", editable = "pkgs/client" },
     { name = "nuitka", specifier = ">=4.1.3" },
+    { name = "tcord-core", editable = "pkgs/tcord-core" },
     { name = "textual", specifier = ">=8.2.8" },
 ]
 
