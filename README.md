@@ -1,64 +1,52 @@
-# TCORD
+# Tcord
 
-That one TUI client you love!<br>
-tcord (*ticord*, `/ˈtiː kɔːrd/`) is aimed to be simple and don't do much, for now<br>
-the primary goal it has is to get the basics right, giving you the features of daily use<br>
-then don't expect much from it other than the default experience hidden in a cute UI
+Tcord is a work-in-progress Discord terminal client. Python owns the Textual UI and presentation state; Rust owns Discord authentication, REST transport, gateway work, voice/media work, and other operations that must not block the UI.
 
-## Wanna contribute?
+> Automating Discord user accounts may violate Discord's Terms of Service. Tcord is not endorsed by Discord, and users are responsible for their own account risk.
 
-Issues and PRs are welcome!<br>
-Also join our [discord server](https://discord.gg/gpQTPTSHgZ) to discuss about it!<br>
-Just make sure to go through the existent issues/prs to avoid duplicates
+## Current base-chat support
 
-### Development guide
+- email/password login with MFA/authenticator or backup-code continuation;
+- stored-session resume using the operating-system credential store, with memory-only fallback when unavailable;
+- QR remote-auth state and payload presentation;
+- logout without restarting the application;
+- guild text channels and already-existing DMs;
+- chronological history and text-message sends;
+- a Discord-shaped Textual layout with modal-style and standard focus navigation;
+- explicit CAPTCHA gating for new DMs and other unsupported CAPTCHA-required actions.
 
-It is **HIGHLY** recommended that you use an Nix environment + [`direnv`](https://github.com/direnv/direnv)
-this makes light-years easier to boot up the needed dependencies including any quirks that might be necessary<br>
-If you do have Nix and direnv, just run `direnv allow` at the project root and wait for it to build the environment,
-it may be slow on the first time
+Voice chat, screen sharing, new-DM creation, attachments, and a system-webview CAPTCHA solver are deferred. Tcord does not write plaintext tokens.
 
-> ![WARN]
-> Please pay close attention on how the project is structured/organized and follow it
+## Architecture
 
-On what this project depends to build:
-- Langs:
-  - Python `Comes with uv in the generated venv`
-  - Rust `Comes with Cargo`
-- Tools:
-  - [Just](https://just.systems/man/en/)
-  - [uv](https://docs.astral.sh/uv/getting-started/)
-  - [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
-  - gcc `Search for an installation guide for your system of gcc 15.2.0`
-  - ccache `Optional but nice to have for faster recompiles`
-- Packages:
-  - [maturin](https://pypi.org/project/maturin/)
-  - [PyO3](https://crates.io/crates/pyo3)
-  - [nuitka](https://pypi.org/project/Nuitka/)
-  - [click](https://pypi.org/project/click/)
-  - [textual](https://pypi.org/project/textual/)
-  - `other...`
+- `pkgs/tcord-core` — Rust, Tokio, and PyO3 extension module (`tcord_core`). It runs the Discord worker and owns credential persistence.
+- `pkgs/client` — transport-agnostic Python models, protocols, and async glues consumed by the UI.
+- `pkgs/tcord` — Textual application and Click launcher.
 
-Then check the `Justfile`s around for a good insight on what to do next<br>
-Or `just -l` to get a list of available commands and their respective documentation<br>
-> Run `just b` to compile the binary then use `just r -b` to run it
-> more information about this part will be added soon, for now this should be enough for you to start
+The TUI receives models and authentication state from the client facade. Network work is not placed in widget callbacks.
 
-#### Why there is Rust being used you ask?
+## Development
 
-Glad you asked!<br>
-Well, first of all, the majority of this app, as of now, is intended to be in Python<br>
-- `Then why don't you keep it 100% Python?`<br>
-I could, but for some features/capabilities it's a good option to actually
-hand off the heavy work, voicechat handling for example, out of the way so the Python code
-is free to manage the app state and ui without the concern of being blocked<br>
-- `But why Rust specifically?`<br>
-I guess we all know Rust is memory-safe and a pain in the ass until the code is right, then
-I (dark1zin) can benefit from that on a way where the compiler will prevent me from shooting myself on the foot<br>
-But the actual reason, despite my lack of intelligence, is that it already have very good and stable implementations
-to generate the glue code through `maturin` and `PyO3` along with a wide range of *crates* to benefit from, such as `cpal`for audio I/O
+A Nix shell plus `direnv` is recommended. The toolchain requires Python, Rust/Cargo, `uv`, `maturin`, and `just`.
 
+```text
+# Build/install the PyO3 module for local development
+env -u VIRTUAL_ENV uv run maturin develop --manifest-path pkgs/tcord-core/Cargo.toml
 
-## Free for everyone and open-source
+# Run transport regression tests
+PYTHONPATH=pkgs/client/src ./.venv/bin/python -W error::ResourceWarning -m unittest discover -s pkgs/client/tests -v
 
-Licenced under [MIT](./LICENSE)
+# Run Textual headless UI tests
+(cd pkgs/tcord && env -u VIRTUAL_ENV PYTHONPATH=src uv run --package tcord python -m unittest discover -s tests -v)
+
+# Launch the application
+just r
+```
+
+## Testing
+
+Tcord uses deterministic in-process mocks and sanitized protocol fixtures instead of Docker/Spacebar/Fosscord fixture containers. This keeps transport and UI tests independent from Discord availability. Manual live-account smoke tests are optional and never belong in CI.
+
+## Reference and licensing boundaries
+
+Tcord is MIT licensed. Endcord is behavior-only reference material: no code or structure may be copied. Concord, Discordo, and Oxicord are GPL-3.0 references; Tcord currently implements its own code and does not incorporate their source. Any future reuse must be reviewed for license compatibility before it is introduced.

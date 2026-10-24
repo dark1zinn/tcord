@@ -1,31 +1,38 @@
-# Roadmap spec
+# Roadmap
 
-Only add or remove from this file after a previous discussion that involves a maintainer of the project<br>
-When addressing any of those make it explicit in the PR description
+## Foundation and bindings
 
-## Main goals (as of now)
+- [x] Python workspace packages and Rust/PyO3 `tcord_core` extension
+- [x] Cancellable Rust-owned authentication worker and safe Python state facade
+- [x] Deterministic in-process mock testing; no fixture container is required
 
-- [ ] Setup docker-compose with [Spacebar](https://github.com/spacebarchat/spacebarchat) [(Fosscord)](https://github.com/ctrlkohl/fosscord) container for deveelopment testing
-- [ ] TUI in python (no callback bindings)
-- [ ] QR code & oAuth2 Authentication (website and QR CODE)
-- [ ] TUI callbacks
-- [ ] Sending/receiving messages in chats/DMs
-- [ ] Server and chat browsing
+## Base chat milestone
 
-## Upcoming concerns
+- [x] Email/password login, MFA-code continuation, stored-session resume, QR remote-auth state, and logout
+- [x] Textual login/chat surface with modal-style navigation and standard focus keys
+- [x] Browse guild text channels and existing DMs
+- [x] Read chronological history and send text messages
+- [x] CAPTCHA-gated new-DM feedback; no creation request is attempted
 
-- [ ] Voice calls support (Rust glue to deal with this)
+## Resilience and accessibility
 
-### Deferred for later implementation/discussion/planning
+- [ ] Gateway events, reconnect/resume, unread indicators, and message update/delete handling
+- [ ] Keyboard/keymap customization, screen-reader review, and terminal-size accessibility work
 
-> If you have any idea/suggestion please open an issue or reach out in [our Discord server](https://discord.gg/gpQTPTSHgZ) for discussion
+## CAPTCHA completion
 
-- [ ] accessibility implementations (screen readers, coloring, reduced motion, font sizing/style, etc)
-- [ ] config file implementation (toml)
-- [ ] notifications support
-- [ ] terminal image rendering support (probably kitty protocol)
-- [ ] nix packaging with options
-- [ ] QoL optional widgets (clock, online time&status, activity picker, etc, common everyday use)
-- [ ] complete CLI implementation
-- [ ] vencord plugins compatibility (probably better to offer an way to make plugins/extensions then port desired ones from vencord)
-- [ ] aarch/arm binaries (why not?)
+- [ ] System-webview challenge flow (for example WebKitGTK) returning verified challenge results to Rust
+- [ ] New DMs and other Discord actions that require CAPTCHA
+
+## Voice and media
+
+- [ ] Voice chat through Rust audio/network components
+- [ ] Screen sharing
+
+## Later feature parity
+
+- [ ] Attachments, reactions, mentions, profiles, notifications, terminal image protocols, packaging, and plugin APIs
+
+## Testing policy
+
+Tests use sanitized hand-authored fixtures, in-process HTTP/WebSocket mocks, Rust boundary tests, and Python protocol fakes. Fixtures must never include account tokens, passwords, QR tickets, private message content, or copied endcord code. Optional live-account checks are manual only and must not run in CI.
