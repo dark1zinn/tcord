@@ -1,34 +1,32 @@
-from typing import Dict, Any
+import asyncio
+from typing import Any
 
 from ..protocols import AuthProtocol
 
+
 class Auth(AuthProtocol):
-    def __init__(self, engine: Any):
-        self._engine = engine # The underlying Rust/HTTP engine
-        self._token: str | None = None
+    """Async facade over the Rust session; secrets never enter Python state."""
 
-    async def login_with_password(self, email: str, password: str) -> Dict[str, Any]:
-        # TODO: Implement pure Python HTTP POST to Discord login endpoint
-        return {"status": "success", "token": "dummy_token"}
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
 
-    async def submit_totp(self, ticket: str, code: str) -> str:
-        # TODO: Implement TOTP HTTP POST
-        return "dummy_token"
+    async def begin_credentials(self) -> Any:
+        return await asyncio.to_thread(self._engine.begin_credentials)
 
-    async def login_with_token(self, token: str) -> bool:
-        self._token = token
-        return True
+    async def login_with_password(self, email: str, password: str) -> Any:
+        return await asyncio.to_thread(self._engine.login_with_password, email, password)
 
-    async def connect(self) -> None:
-        if not self._token:
-            raise ValueError("Cannot connect without a token.")
-        # TODO: Pass token to Rust engine to start WebSocket connection
-        pass
+    async def submit_mfa(self, code: str) -> Any:
+        return await asyncio.to_thread(self._engine.submit_mfa, code)
 
-    async def logoff(self) -> None:
-        self._token = None
-        # TODO: Cleanup Rust engine state
-        pass
+    async def login_with_qr(self) -> Any:
+        return await asyncio.to_thread(self._engine.begin_qr_login)
 
-    async def login_with_qr(self) -> str:
-        raise NotImplementedError("QR Login is deferred.")
+    async def resume_stored_session(self) -> Any:
+        return await asyncio.to_thread(self._engine.resume_stored_session)
+
+    async def auth_state(self) -> Any:
+        return await asyncio.to_thread(self._engine.auth_state)
+
+    async def logoff(self) -> Any:
+        return await asyncio.to_thread(self._engine.logout)

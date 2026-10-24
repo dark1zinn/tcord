@@ -1,6 +1,4 @@
-# This is just the workspace definition
-# For the actual app package see ./pkgs/tcord
-
+# Rust workspace for the PyO3 transport extension. Python packages are managed by uv.
 [workspace]
-members = ["./pkgs/*"]
+members = ["pkgs/tcord-core"]
 resolver = "2"

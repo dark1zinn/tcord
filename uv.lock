@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 members = [
     "client",
     "tcord",
+    "tcord-core",
     "workspace",
 ]
 
@@ -25,6 +26,12 @@ wheels = [
 name = "client"
 version = "0.0.1"
 source = { editable = "pkgs/client" }
+dependencies = [
+    { name = "tcord-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tcord-core", editable = "pkgs/tcord-core" }]
 
 [[package]]
 name = "colorama"
@@ -159,6 +166,11 @@ requires-dist = [
     { name = "nuitka", specifier = ">=4.1.3" },
     { name = "textual", specifier = ">=8.2.8" },
 ]
+
+[[package]]
+name = "tcord-core"
+version = "0.1.0"
+source = { editable = "pkgs/tcord-core" }
 
 [[package]]
 name = "textual"
