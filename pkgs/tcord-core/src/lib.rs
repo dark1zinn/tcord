@@ -131,12 +131,19 @@ struct CurrentUser {
     id: String,
     username: String,
 }
+type Reply = mpsc::Sender<Result<String, String>>;
+
 enum Command {
     Password(String, String, CancellationToken),
     Mfa(String, CancellationToken),
     Resume(CancellationToken),
     Logout,
     Qr(CancellationToken),
+    Guilds(Reply),
+    GuildChannels(String, Reply),
+    DirectMessages(Reply),
+    History(String, Option<String>, u16, Reply),
+    SendMessage(String, String, Reply),
 }
 
 #[pyclass]
@@ -222,6 +229,43 @@ impl Session {
     fn auth_state(&self) -> AuthState {
         AuthState::from(&self.data.lock().expect("session lock poisoned"))
     }
+
+    fn get_guilds(&self, py: Python<'_>) -> PyResult<String> {
+        self.request(py, Command::Guilds)
+    }
+
+    fn get_channels(&self, py: Python<'_>, guild_id: String) -> PyResult<String> {
+        self.request(py, |reply| Command::GuildChannels(guild_id, reply))
+    }
+
+    fn get_dms(&self, py: Python<'_>) -> PyResult<String> {
+        self.request(py, Command::DirectMessages)
+    }
+
+    #[pyo3(signature = (channel_id, before=None, limit=50))]
+    fn load_message_history(
+        &self,
+        py: Python<'_>,
+        channel_id: String,
+        before: Option<String>,
+        limit: u16,
+    ) -> PyResult<String> {
+        self.request(py, |reply| {
+            Command::History(channel_id, before, limit, reply)
+        })
+    }
+
+    fn send_message(
+        &self,
+        py: Python<'_>,
+        channel_id: String,
+        content: String,
+    ) -> PyResult<String> {
+        if content.is_empty() {
+            return Err(PyValueError::new_err("message content must not be empty"));
+        }
+        self.request(py, |reply| Command::SendMessage(channel_id, content, reply))
+    }
 }
 
 impl Session {
@@ -243,6 +287,20 @@ impl Session {
             .map_err(|_| PyValueError::new_err("Discord worker stopped"))?;
         *self.active.lock().expect("active token lock poisoned") = Some(token);
         Ok(self.auth_state())
+    }
+
+    fn request(
+        &self,
+        py: Python<'_>,
+        make_command: impl FnOnce(Reply) -> Command,
+    ) -> PyResult<String> {
+        let (reply, receiver) = mpsc::channel();
+        self.sender
+            .send(make_command(reply))
+            .map_err(|_| PyValueError::new_err("Discord worker stopped"))?;
+        py.detach(move || receiver.recv())
+            .map_err(|_| PyValueError::new_err("Discord worker stopped"))?
+            .map_err(PyValueError::new_err)
     }
 }
 
@@ -274,11 +332,101 @@ impl Worker {
                 Command::Mfa(code, token) => self.runtime.block_on(self.mfa(code, token)),
                 Command::Resume(token) => self.runtime.block_on(self.resume(token)),
                 Command::Qr(token) => self.runtime.block_on(self.qr(token)),
+                Command::Guilds(reply) => self
+                    .runtime
+                    .block_on(self.get_json("/users/@me/guilds", reply)),
+                Command::GuildChannels(guild_id, reply) => self
+                    .runtime
+                    .block_on(self.get_json(&format!("/guilds/{guild_id}/channels"), reply)),
+                Command::DirectMessages(reply) => self
+                    .runtime
+                    .block_on(self.get_json("/users/@me/channels", reply)),
+                Command::History(channel_id, before, limit, reply) => self
+                    .runtime
+                    .block_on(self.history(channel_id, before, limit, reply)),
+                Command::SendMessage(channel_id, content, reply) => self
+                    .runtime
+                    .block_on(self.send_message(channel_id, content, reply)),
                 Command::Logout => {
                     let _ = delete_token();
                 }
             }
         }
+    }
+
+    fn session_token(&self) -> Result<String, String> {
+        self.data
+            .lock()
+            .expect("session lock poisoned")
+            .token
+            .clone()
+            .ok_or_else(|| "No authenticated Discord session".into())
+    }
+
+    async fn get_json(&self, path: &str, reply: Reply) {
+        let result = async {
+            let token = self.session_token()?;
+            let response = self
+                .http
+                .get(format!("{}{}", self.base, path))
+                .header("Authorization", token)
+                .send()
+                .await
+                .map_err(|_| "Unable to reach Discord".to_string())?
+                .error_for_status()
+                .map_err(|_| "Discord rejected the request".to_string())?;
+            response
+                .text()
+                .await
+                .map_err(|_| "Discord returned an invalid response".to_string())
+        }
+        .await;
+        let _ = reply.send(result);
+    }
+
+    async fn history(&self, channel_id: String, before: Option<String>, limit: u16, reply: Reply) {
+        let result = async {
+            let token = self.session_token()?;
+            let mut request = self
+                .http
+                .get(format!("{}/channels/{channel_id}/messages", self.base))
+                .header("Authorization", token)
+                .query(&[("limit", limit.to_string())]);
+            if let Some(before) = before {
+                request = request.query(&[("before", before)]);
+            }
+            request
+                .send()
+                .await
+                .map_err(|_| "Unable to reach Discord".to_string())?
+                .error_for_status()
+                .map_err(|_| "Discord rejected the request".to_string())?
+                .text()
+                .await
+                .map_err(|_| "Discord returned an invalid response".to_string())
+        }
+        .await;
+        let _ = reply.send(result);
+    }
+
+    async fn send_message(&self, channel_id: String, content: String, reply: Reply) {
+        let result = async {
+            let token = self.session_token()?;
+            self.http
+                .post(format!("{}/channels/{channel_id}/messages", self.base))
+                .header("Authorization", token)
+                .json(&json!({"content": content}))
+                .send()
+                .await
+                .map_err(|_| "Unable to reach Discord".to_string())?
+                .error_for_status()
+                .map_err(|_| "Discord rejected the request".to_string())?
+                .text()
+                .await
+                .map_err(|_| "Discord returned an invalid response".to_string())
+        }
+        .await;
+        let _ = reply.send(result);
     }
     async fn login(&self, email: String, password: String, token: CancellationToken) {
         let response = tokio::select! { _ = token.cancelled() => return, response = self.http.post(format!("{}/auth/login", self.base)).json(&json!({"login":email,"password":password})).send() => response };
