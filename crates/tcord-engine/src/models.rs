@@ -1,72 +1,141 @@
+use std::time::SystemTime;
+
 use serde::Deserialize;
 
-/// Authentication state machine of a [`crate::Session`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthStatus {
+/// The signed-in Discord account (or another user referenced by the engine).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct User {
+    pub id: String,
+    pub username: String,
+    #[serde(default)]
+    pub global_name: Option<String>,
+    #[serde(default)]
+    pub bot: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthKind {
     LoggedOut,
+    Restoring,
     WaitingForCredentials,
-    WaitingForQr { payload: String, expires_at: String },
-    WaitingForMfa { kind: String },
-    Authenticated { user_id: String, username: String },
-    Failed { message: String },
+    WaitingForMfa,
+    WaitingForQr,
+    Authenticated,
+    Failed,
 }
 
-/// Flattened, presentation-safe view of the authentication state.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuthView {
-    pub kind: &'static str,
-    pub qr_payload: Option<String>,
-    pub expires_at: Option<String>,
-    pub mfa_kind: Option<String>,
-    pub user_id: Option<String>,
-    pub username: Option<String>,
-    pub message: Option<String>,
-    pub session_will_not_be_saved: bool,
-}
-
-impl AuthView {
-    pub(crate) fn new(status: &AuthStatus, session_will_not_be_saved: bool) -> Self {
-        let mut view = Self {
-            kind: "logged_out",
-            qr_payload: None,
-            expires_at: None,
-            mfa_kind: None,
-            user_id: None,
-            username: None,
-            message: None,
-            session_will_not_be_saved,
-        };
-        match status {
-            AuthStatus::LoggedOut => {}
-            AuthStatus::WaitingForCredentials => view.kind = "waiting_for_credentials",
-            AuthStatus::WaitingForQr {
-                payload,
-                expires_at,
-            } => {
-                view.kind = "waiting_for_qr";
-                view.qr_payload = Some(payload.clone());
-                view.expires_at = Some(expires_at.clone());
-            }
-            AuthStatus::WaitingForMfa { kind } => {
-                view.kind = "waiting_for_mfa";
-                view.mfa_kind = Some(kind.clone());
-            }
-            AuthStatus::Authenticated { user_id, username } => {
-                view.kind = "authenticated";
-                view.user_id = Some(user_id.clone());
-                view.username = Some(username.clone());
-            }
-            AuthStatus::Failed { message } => {
-                view.kind = "failed";
-                view.message = Some(message.clone());
-            }
+impl AuthKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LoggedOut => "logged_out",
+            Self::Restoring => "restoring",
+            Self::WaitingForCredentials => "waiting_for_credentials",
+            Self::WaitingForMfa => "waiting_for_mfa",
+            Self::WaitingForQr => "waiting_for_qr",
+            Self::Authenticated => "authenticated",
+            Self::Failed => "failed",
         }
-        view
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct CurrentUser {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MfaMethod {
+    Totp,
+    Sms,
+    Backup,
+}
+
+impl MfaMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Totp => "totp",
+            Self::Sms => "sms",
+            Self::Backup => "backup",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "totp" => Some(Self::Totp),
+            "sms" => Some(Self::Sms),
+            "backup" => Some(Self::Backup),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthFailure {
+    InvalidCredentials,
+    InvalidCode,
+    CaptchaRequired,
+    RateLimited,
+    Network,
+    QrCancelled,
+    QrExpired,
+    PhoneVerificationRequired,
+    AccountDisabled,
+    WebauthnUnsupported,
+    SessionExpired,
+    CredentialStore,
+}
+
+impl AuthFailure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidCredentials => "invalid_credentials",
+            Self::InvalidCode => "invalid_code",
+            Self::CaptchaRequired => "captcha_required",
+            Self::RateLimited => "rate_limited",
+            Self::Network => "network",
+            Self::QrCancelled => "qr_cancelled",
+            Self::QrExpired => "qr_expired",
+            Self::PhoneVerificationRequired => "phone_verification_required",
+            Self::AccountDisabled => "account_disabled",
+            Self::WebauthnUnsupported => "webauthn_unsupported",
+            Self::SessionExpired => "session_expired",
+            Self::CredentialStore => "credential_store",
+        }
+    }
+}
+
+/// User shown while a scanned QR login awaits confirmation on the phone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QrUser {
     pub id: String,
+    pub discriminator: String,
+    pub avatar: Option<String>,
     pub username: String,
+}
+
+/// Immutable snapshot of the authentication state machine; `version` increases on every change.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuthSnapshot {
+    pub version: u64,
+    pub kind: AuthKind,
+    pub mfa_methods: Vec<MfaMethod>,
+    pub qr_url: Option<String>,
+    pub qr_expires_at: Option<SystemTime>,
+    pub qr_user: Option<QrUser>,
+    pub user: Option<User>,
+    pub failure: Option<AuthFailure>,
+    pub retry_after: Option<f64>,
+    pub session_persisted: bool,
+}
+
+impl Default for AuthSnapshot {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            kind: AuthKind::LoggedOut,
+            mfa_methods: Vec::new(),
+            qr_url: None,
+            qr_expires_at: None,
+            qr_user: None,
+            user: None,
+            failure: None,
+            retry_after: None,
+            session_persisted: false,
+        }
+    }
 }

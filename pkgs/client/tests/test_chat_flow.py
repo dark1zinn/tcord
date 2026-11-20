@@ -67,7 +67,8 @@ async def client() -> AsyncIterator[TcordClient]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _DiscordFixture)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    client = TcordClient(Session(f"http://127.0.0.1:{server.server_port}"))
+    session = Session(f"http://127.0.0.1:{server.server_port}", credential_store="memory")
+    client = TcordClient(session)
     await client.auth.login_with_password("person@example.test", "secret")
     for _ in range(100):
         if (await client.auth.auth_state()).kind == "authenticated":

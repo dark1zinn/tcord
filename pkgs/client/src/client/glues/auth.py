@@ -10,9 +10,6 @@ class Auth(AuthProtocol):
     def __init__(self, engine: Any) -> None:
         self._engine = engine
 
-    async def begin_credentials(self) -> Any:
-        return await asyncio.to_thread(self._engine.begin_credentials)
-
     async def login_with_password(self, email: str, password: str) -> Any:
         return await asyncio.to_thread(self._engine.login_with_password, email, password)
 

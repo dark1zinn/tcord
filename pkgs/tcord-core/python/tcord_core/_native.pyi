@@ -1,4 +1,4 @@
-from typing import final
+from typing import Literal, final
 
 @final
 class AuthState:
@@ -13,8 +13,12 @@ class AuthState:
 
 @final
 class Session:
-    def __init__(self, api_base: str | None = None) -> None: ...
-    def begin_credentials(self) -> AuthState: ...
+    def __init__(
+        self,
+        api_base: str | None = None,
+        remote_auth_url: str | None = None,
+        credential_store: Literal["system", "memory"] = "system",
+    ) -> None: ...
     def login_with_password(self, email: str, password: str) -> AuthState: ...
     def submit_mfa(self, code: str) -> AuthState: ...
     def begin_qr_login(self) -> AuthState: ...
