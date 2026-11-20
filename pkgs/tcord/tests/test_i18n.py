@@ -2,6 +2,7 @@ import gettext
 from collections.abc import Iterator
 
 import pytest
+from babel.messages.pofile import read_po
 from tcord import i18n
 
 
@@ -44,3 +45,20 @@ def test_explicit_and_unknown_languages() -> None:
 def test_compiled_catalog_loads(language: str) -> None:
     catalog = gettext.translation("tcord", localedir=i18n.LOCALE_DIR, languages=[language])
     assert catalog.info()["language"] == language
+
+
+@pytest.mark.parametrize("language", ["pt_BR", "es"])
+def test_catalog_translates_every_template_message(language: str) -> None:
+    template = read_po((i18n.LOCALE_DIR / "tcord.pot").open("rb"))
+    path = i18n.LOCALE_DIR / language / "LC_MESSAGES" / "tcord.po"
+    catalog = read_po(path.open("rb"))
+    missing = []
+    for message in template:
+        if not message.id:
+            continue
+        translated = catalog.get(message.id)
+        strings = translated.string if translated is not None else ""
+        values = strings if isinstance(strings, tuple) else (strings,)
+        if translated is None or translated.fuzzy or not all(values):
+            missing.append(message.id)
+    assert missing == []
