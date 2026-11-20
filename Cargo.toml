@@ -1,4 +1,15 @@
-# Rust workspace for the PyO3 transport extension. Python packages are managed by uv.
+# Rust workspace. Python packages are managed by uv (see pyproject.toml).
 [workspace]
 members = ["pkgs/tcord-core"]
 resolver = "2"
+
+# Smaller target/ directory: keep only line tables for workspace crates.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+strip = true
+lto = "thin"

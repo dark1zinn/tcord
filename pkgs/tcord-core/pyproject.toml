@@ -10,3 +10,4 @@ build-backend = "maturin"
 
 [tool.maturin]
 module-name = "tcord_core"
+features = ["pyo3/extension-module"]

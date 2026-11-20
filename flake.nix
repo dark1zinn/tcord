@@ -56,6 +56,7 @@
             packages = with pkgs; [
               rustToolchain
               openssl
+              dbus            # libdbus for the keyring secret-service backend
               pkg-config
               cargo-deny
               cargo-edit
