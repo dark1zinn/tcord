@@ -5,6 +5,7 @@ pub mod auth;
 pub mod credentials;
 pub mod discord;
 pub mod error;
+pub mod gateway;
 pub mod http;
 pub mod identity;
 pub mod models;

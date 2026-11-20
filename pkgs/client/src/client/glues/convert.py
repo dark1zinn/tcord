@@ -8,11 +8,27 @@ from ..models import (
     AuthKind,
     AuthState,
     Channel,
+    ChannelDeleted,
+    ChannelUpserted,
+    ConnectionChanged,
+    ConnectionStatus,
+    GatewayEvent,
     Guild,
+    GuildRemoved,
+    GuildUpserted,
+    MessageAcked,
+    MessageCreated,
+    MessageDeleted,
     MessageInfo,
+    MessageUpdated,
     MfaMethod,
     QrUser,
+    ReadState,
+    Ready,
+    ReadySnapshot,
     Role,
+    SessionInvalidated,
+    TypingStarted,
     User,
 )
 
@@ -99,3 +115,52 @@ def message(native: tcord_core.Message) -> MessageInfo:
         referenced=message(referenced) if referenced is not None else None,
         nonce=native.nonce,
     )
+
+
+def ready(native: tcord_core.Ready) -> ReadySnapshot:
+    return ReadySnapshot(
+        user=user(native.user),
+        guilds=tuple(guild(item) for item in native.guilds),
+        private_channels=tuple(channel(item) for item in native.private_channels),
+        read_states=tuple(
+            ReadState(
+                channel_id=state.channel_id,
+                last_message_id=state.last_message_id,
+                mention_count=state.mention_count,
+            )
+            for state in native.read_states
+        ),
+        users=tuple(user(item) for item in native.users),
+    )
+
+
+def event(native: tcord_core.GatewayEvent) -> GatewayEvent | None:
+    """Map a native event; unknown kinds (from a newer engine) are dropped."""
+    match native.kind:
+        case "ready" if native.ready is not None:
+            return Ready(ready(native.ready))
+        case "message_create" if native.message is not None:
+            return MessageCreated(message(native.message))
+        case "message_update" if native.message is not None:
+            return MessageUpdated(message(native.message))
+        case "message_delete" if native.message_id and native.channel_id:
+            return MessageDeleted(native.message_id, native.channel_id, native.guild_id)
+        case "typing_start" if native.channel_id and native.user_id:
+            return TypingStarted(
+                native.channel_id, native.guild_id, native.user_id, native.timestamp or 0
+            )
+        case "message_ack" if native.channel_id and native.message_id:
+            return MessageAcked(native.channel_id, native.message_id, native.mention_count)
+        case "channel_upsert" if native.channel is not None:
+            return ChannelUpserted(channel(native.channel))
+        case "channel_delete" if native.channel_id:
+            return ChannelDeleted(native.channel_id, native.guild_id)
+        case "guild_upsert" if native.guild is not None:
+            return GuildUpserted(guild(native.guild))
+        case "guild_delete" if native.guild_id:
+            return GuildRemoved(native.guild_id, bool(native.unavailable))
+        case "status" if native.status is not None:
+            return ConnectionChanged(ConnectionStatus(native.status), native.retry_in)
+        case "session_invalidated":
+            return SessionInvalidated()
+    return None

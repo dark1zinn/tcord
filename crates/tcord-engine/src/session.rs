@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use reqwest::Method;
 use secrecy::SecretString;
@@ -9,21 +10,27 @@ use crate::auth::AuthController;
 use crate::credentials::{CredentialStore, KeyringStore, MemoryStore};
 use crate::discord::{Channel, Guild, Message, MessageReference};
 use crate::error::{EngineError, Result};
+use crate::gateway::{GatewayConfig, GatewayEvent, GatewayHandle, Ready};
 use crate::http::DiscordHttp;
 
 #[derive(Clone, Debug, Default)]
 pub struct SessionConfig {
     pub api_base: Option<String>,
     pub remote_auth_url: Option<String>,
+    pub gateway_url: Option<String>,
     pub memory_store: bool,
     /// Discord locale such as `en-US`; defaults to `en-US`.
     pub locale: Option<String>,
+    /// Base reconnect delay; defaults to one second (tests shrink it).
+    pub reconnect_base: Option<Duration>,
 }
 
-/// A Discord account session: authentication plus authenticated REST operations.
+/// A Discord account session: authentication, REST operations and the gateway.
 pub struct Session {
     auth: Arc<AuthController>,
     http: Arc<DiscordHttp>,
+    gateway_config: GatewayConfig,
+    gateway: Mutex<Option<Arc<GatewayHandle>>>,
     closed: CancellationToken,
 }
 
@@ -41,9 +48,17 @@ impl Session {
             store,
             config.remote_auth_url,
         ));
+        let defaults = GatewayConfig::default();
+        let gateway_config = GatewayConfig {
+            url: config.gateway_url.unwrap_or(defaults.url),
+            locale,
+            reconnect_base: config.reconnect_base.unwrap_or(defaults.reconnect_base),
+        };
         Ok(Self {
             auth,
             http,
+            gateway_config,
+            gateway: Mutex::new(None),
             closed: CancellationToken::new(),
         })
     }
@@ -55,7 +70,45 @@ impl Session {
     /// Cancel every running operation. The session can no longer authenticate afterwards.
     pub fn close(&self) {
         self.closed.cancel();
+        self.disconnect_gateway();
         self.auth.begin_op();
+    }
+
+    fn current_gateway(&self) -> Option<Arc<GatewayHandle>> {
+        self.gateway.lock().expect("gateway slot poisoned").clone()
+    }
+
+    /// Open the gateway (replacing any previous connection) and return the first READY.
+    pub async fn connect_gateway(&self) -> Result<Ready> {
+        if self.closed.is_cancelled() {
+            return Err(EngineError::Cancelled);
+        }
+        self.disconnect_gateway();
+        let (handle, ready) =
+            GatewayHandle::connect(self.gateway_config.clone(), Arc::clone(&self.auth)).await?;
+        *self.gateway.lock().expect("gateway slot poisoned") = Some(Arc::new(handle));
+        Ok(ready)
+    }
+
+    /// Next gateway event; `None` when no gateway is running or it has stopped.
+    pub async fn next_event(&self) -> Option<GatewayEvent> {
+        let gateway = self.current_gateway()?;
+        tokio::select! {
+            _ = self.closed.cancelled() => None,
+            event = gateway.next_event() => event,
+        }
+    }
+
+    pub fn subscribe_guild(&self, guild_id: String) {
+        if let Some(gateway) = self.current_gateway() {
+            gateway.subscribe_guild(guild_id);
+        }
+    }
+
+    pub fn disconnect_gateway(&self) {
+        if let Some(gateway) = self.gateway.lock().expect("gateway slot poisoned").take() {
+            gateway.disconnect();
+        }
     }
 
     fn token(&self) -> Result<SecretString> {

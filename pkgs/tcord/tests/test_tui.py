@@ -1,4 +1,14 @@
-from client.models import AuthKind, AuthState, Channel, Guild, MessageInfo, MfaMethod
+from client.models import (
+    AuthKind,
+    AuthState,
+    Channel,
+    GatewayEvent,
+    Guild,
+    MessageInfo,
+    MfaMethod,
+    ReadySnapshot,
+    User,
+)
 from tui import Tui
 
 AUTHENTICATED = AuthState(version=1, kind=AuthKind.AUTHENTICATED)
@@ -37,6 +47,18 @@ class Auth:
 
 
 class Gateway:
+    async def connect(self) -> ReadySnapshot:
+        return ReadySnapshot(User("1", "me"), (), (), (), ())
+
+    async def next_event(self) -> GatewayEvent | None:
+        return None
+
+    def subscribe_guild(self, guild_id: str) -> None:
+        pass
+
+    def disconnect(self) -> None:
+        pass
+
     async def guilds(self) -> list[Guild]:
         return []
 

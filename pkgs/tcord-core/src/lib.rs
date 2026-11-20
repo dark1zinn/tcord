@@ -309,6 +309,148 @@ impl From<tcord_engine::Message> for Message {
     }
 }
 
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct ReadState {
+    channel_id: String,
+    last_message_id: Option<String>,
+    mention_count: u32,
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct Ready {
+    user: User,
+    guilds: Vec<Guild>,
+    private_channels: Vec<Channel>,
+    read_states: Vec<ReadState>,
+    users: Vec<User>,
+}
+
+impl From<tcord_engine::gateway::Ready> for Ready {
+    fn from(ready: tcord_engine::gateway::Ready) -> Self {
+        Self {
+            user: ready.user.into(),
+            guilds: ready.guilds.into_iter().map(Guild::from).collect(),
+            private_channels: ready
+                .private_channels
+                .into_iter()
+                .map(Channel::from)
+                .collect(),
+            read_states: ready
+                .read_states
+                .into_iter()
+                .map(|state| ReadState {
+                    channel_id: state.channel_id,
+                    last_message_id: state.last_message_id,
+                    mention_count: state.mention_count,
+                })
+                .collect(),
+            users: ready.users.into_iter().map(User::from).collect(),
+        }
+    }
+}
+
+/// One gateway event. `kind` selects which of the optional fields are set.
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone, Default)]
+struct GatewayEvent {
+    kind: String,
+    message: Option<Message>,
+    message_id: Option<String>,
+    channel_id: Option<String>,
+    guild_id: Option<String>,
+    user_id: Option<String>,
+    timestamp: Option<i64>,
+    mention_count: Option<u32>,
+    channel: Option<Channel>,
+    guild: Option<Guild>,
+    ready: Option<Ready>,
+    status: Option<String>,
+    retry_in: Option<f64>,
+    unavailable: Option<bool>,
+}
+
+impl From<tcord_engine::gateway::GatewayEvent> for GatewayEvent {
+    fn from(event: tcord_engine::gateway::GatewayEvent) -> Self {
+        use tcord_engine::gateway::GatewayEvent as Event;
+        let kind = |name: &str| Self {
+            kind: name.into(),
+            ..Self::default()
+        };
+        match event {
+            Event::Ready(ready) => Self {
+                ready: Some((*ready).into()),
+                ..kind("ready")
+            },
+            Event::MessageCreate(message) => Self {
+                message: Some((*message).into()),
+                ..kind("message_create")
+            },
+            Event::MessageUpdate(message) => Self {
+                message: Some((*message).into()),
+                ..kind("message_update")
+            },
+            Event::MessageDelete {
+                id,
+                channel_id,
+                guild_id,
+            } => Self {
+                message_id: Some(id),
+                channel_id: Some(channel_id),
+                guild_id,
+                ..kind("message_delete")
+            },
+            Event::TypingStart {
+                channel_id,
+                guild_id,
+                user_id,
+                timestamp,
+            } => Self {
+                channel_id: Some(channel_id),
+                guild_id,
+                user_id: Some(user_id),
+                timestamp: Some(timestamp),
+                ..kind("typing_start")
+            },
+            Event::MessageAck {
+                channel_id,
+                message_id,
+                mention_count,
+            } => Self {
+                channel_id: Some(channel_id),
+                message_id: Some(message_id),
+                mention_count,
+                ..kind("message_ack")
+            },
+            Event::ChannelUpsert(channel) => Self {
+                channel: Some((*channel).into()),
+                ..kind("channel_upsert")
+            },
+            Event::ChannelDelete { id, guild_id } => Self {
+                channel_id: Some(id),
+                guild_id,
+                ..kind("channel_delete")
+            },
+            Event::GuildUpsert(guild) => Self {
+                guild: Some((*guild).into()),
+                ..kind("guild_upsert")
+            },
+            Event::GuildDelete { id, unavailable } => Self {
+                guild_id: Some(id),
+                unavailable: Some(unavailable),
+                ..kind("guild_delete")
+            },
+            Event::Status { status, retry_in } => Self {
+                status: Some(status.as_str().into()),
+                retry_in,
+                ..kind("status")
+            },
+            Event::SessionInvalidated => kind("session_invalidated"),
+        }
+    }
+}
+
 #[pyclass(frozen, module = "tcord_core._native")]
 struct Session {
     inner: Arc<tcord_engine::Session>,
@@ -319,12 +461,21 @@ type Awaitable<'py> = PyResult<Bound<'py, PyAny>>;
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (api_base=None, remote_auth_url=None, credential_store="system", locale="en-US"))]
+    #[pyo3(signature = (
+        api_base=None,
+        remote_auth_url=None,
+        credential_store="system",
+        locale="en-US",
+        gateway_url=None,
+        reconnect_base=None,
+    ))]
     fn new(
         api_base: Option<String>,
         remote_auth_url: Option<String>,
         credential_store: &str,
         locale: &str,
+        gateway_url: Option<String>,
+        reconnect_base: Option<f64>,
     ) -> PyResult<Self> {
         let memory_store = match credential_store {
             "system" => false,
@@ -335,11 +486,19 @@ impl Session {
                 )));
             }
         };
+        let reconnect_base = reconnect_base
+            .map(|seconds| {
+                std::time::Duration::try_from_secs_f64(seconds)
+                    .map_err(|_| PyValueError::new_err("reconnect_base must be positive"))
+            })
+            .transpose()?;
         let inner = tcord_engine::Session::new(SessionConfig {
             api_base,
             remote_auth_url,
+            gateway_url,
             memory_store,
             locale: Some(locale.to_owned()),
+            reconnect_base,
         })
         .map_err(EngineErr)?;
         Ok(Self {
@@ -425,6 +584,29 @@ impl Session {
         future_into_py(py, async move {
             Ok(AuthState::from(auth.set_remember_session(enabled).await))
         })
+    }
+
+    fn connect_gateway<'py>(&self, py: Python<'py>) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let ready = inner.connect_gateway().await.map_err(EngineErr)?;
+            Ok(Ready::from(ready))
+        })
+    }
+
+    fn next_event<'py>(&self, py: Python<'py>) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            Ok(inner.next_event().await.map(GatewayEvent::from))
+        })
+    }
+
+    fn subscribe_guild(&self, guild_id: String) {
+        self.inner.subscribe_guild(guild_id);
+    }
+
+    fn disconnect_gateway(&self) {
+        self.inner.disconnect_gateway();
     }
 
     fn fetch_guilds<'py>(&self, py: Python<'py>) -> Awaitable<'py> {
@@ -515,5 +697,8 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Attachment>()?;
     module.add_class::<MessageReference>()?;
     module.add_class::<Message>()?;
+    module.add_class::<ReadState>()?;
+    module.add_class::<Ready>()?;
+    module.add_class::<GatewayEvent>()?;
     Ok(())
 }

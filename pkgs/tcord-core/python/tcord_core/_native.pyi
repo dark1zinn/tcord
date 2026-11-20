@@ -89,6 +89,37 @@ class Message:
     def referenced(self) -> Message | None: ...
 
 @final
+class ReadState:
+    channel_id: str
+    last_message_id: str | None
+    mention_count: int
+
+@final
+class Ready:
+    user: User
+    guilds: list[Guild]
+    private_channels: list[Channel]
+    read_states: list[ReadState]
+    users: list[User]
+
+@final
+class GatewayEvent:
+    kind: str
+    message: Message | None
+    message_id: str | None
+    channel_id: str | None
+    guild_id: str | None
+    user_id: str | None
+    timestamp: int | None
+    mention_count: int | None
+    channel: Channel | None
+    guild: Guild | None
+    ready: Ready | None
+    status: str | None
+    retry_in: float | None
+    unavailable: bool | None
+
+@final
 class Session:
     def __init__(
         self,
@@ -96,10 +127,14 @@ class Session:
         remote_auth_url: str | None = None,
         credential_store: Literal["system", "memory"] = "system",
         locale: str = "en-US",
+        gateway_url: str | None = None,
+        reconnect_base: float | None = None,
     ) -> None: ...
     def auth_state(self) -> AuthState: ...
     def cancel_qr_login(self) -> None: ...
     def close(self) -> None: ...
+    def subscribe_guild(self, guild_id: str) -> None: ...
+    def disconnect_gateway(self) -> None: ...
     async def wait_auth_change(self, after_version: int) -> AuthState: ...
     async def resume_session(self) -> AuthState: ...
     async def login_password(self, login: str, password: str) -> AuthState: ...
@@ -108,6 +143,8 @@ class Session:
     async def start_qr_login(self) -> AuthState: ...
     async def logout(self) -> AuthState: ...
     async def set_remember_session(self, enabled: bool) -> AuthState: ...
+    async def connect_gateway(self) -> Ready: ...
+    async def next_event(self) -> GatewayEvent | None: ...
     async def fetch_guilds(self) -> list[Guild]: ...
     async def fetch_guild_channels(self, guild_id: str) -> list[Channel]: ...
     async def fetch_private_channels(self) -> list[Channel]: ...
