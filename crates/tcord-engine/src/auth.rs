@@ -183,10 +183,17 @@ impl AuthController {
                 "no MFA challenge is pending".into(),
             ));
         };
-        if self.snapshot().kind != AuthKind::WaitingForMfa {
+        let snapshot = self.snapshot();
+        if snapshot.kind != AuthKind::WaitingForMfa {
             return Err(EngineError::InvalidInput(
                 "no MFA challenge is pending".into(),
             ));
+        }
+        if !snapshot.mfa_methods.contains(&method) {
+            return Err(EngineError::InvalidInput(format!(
+                "MFA method {} is not available for this account",
+                method.as_str()
+            )));
         }
         let op = self.begin_op();
         let body = json!({"ticket": ticket, "code": code.trim(), "login_instance_id": instance});
@@ -198,6 +205,32 @@ impl AuthController {
         self.handle_login_response(&op, response, AuthKind::WaitingForMfa)
             .await;
         Ok(self.snapshot())
+    }
+
+    /// Ask Discord to text an MFA code. Returns the redacted phone number it was sent to.
+    pub async fn send_mfa_sms(&self) -> Result<Option<String>> {
+        let snapshot = self.snapshot();
+        if snapshot.kind != AuthKind::WaitingForMfa
+            || !snapshot.mfa_methods.contains(&MfaMethod::Sms)
+        {
+            return Err(EngineError::InvalidInput(
+                "SMS verification is not available".into(),
+            ));
+        }
+        let ticket = self
+            .lock()
+            .mfa_ticket
+            .clone()
+            .ok_or_else(|| EngineError::InvalidInput("no MFA challenge is pending".into()))?;
+        let body = json!({"ticket": ticket});
+        let response = self
+            .http
+            .send(Method::POST, "/auth/mfa/sms/send", None, &[], Some(&body))
+            .await?;
+        Ok(response
+            .get("phone")
+            .and_then(Value::as_str)
+            .map(str::to_owned))
     }
 
     async fn handle_login_response(

@@ -20,6 +20,9 @@ class Auth:
     async def submit_mfa(self, method: MfaMethod, code: str) -> AuthState:
         return AUTHENTICATED
 
+    async def send_sms_code(self) -> str | None:
+        return None
+
     async def start_qr_login(self) -> AuthState:
         return AUTHENTICATED
 

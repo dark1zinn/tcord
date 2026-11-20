@@ -398,6 +398,13 @@ impl Session {
         })
     }
 
+    fn send_mfa_sms<'py>(&self, py: Python<'py>) -> Awaitable<'py> {
+        let auth = Arc::clone(self.inner.auth());
+        future_into_py(py, async move {
+            Ok(auth.send_mfa_sms().await.map_err(EngineErr)?)
+        })
+    }
+
     fn start_qr_login<'py>(&self, py: Python<'py>) -> Awaitable<'py> {
         let auth = Arc::clone(self.inner.auth());
         future_into_py(

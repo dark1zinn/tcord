@@ -26,6 +26,9 @@ class Auth(AuthProtocol):
     async def submit_mfa(self, method: MfaMethod, code: str) -> AuthState:
         return convert.auth_state(await self._engine.submit_mfa(method.value, code))
 
+    async def send_sms_code(self) -> str | None:
+        return await self._engine.send_mfa_sms()
+
     async def start_qr_login(self) -> AuthState:
         return convert.auth_state(await self._engine.start_qr_login())
 
