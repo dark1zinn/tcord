@@ -2,22 +2,31 @@
 
 ## Foundation and bindings
 
-- [x] Python workspace packages and Rust/PyO3 `tcord_core` extension
-- [x] Cancellable Rust-owned authentication worker and safe Python state facade
+- [x] Python workspace packages; pure-Rust `tcord-engine` crate with thin PyO3 `tcord_core` bindings
+- [x] Native asyncio awaitables, typed models and typed exceptions across the boundary
+- [x] Race-free auth state (logout always wins), keyring-backed sessions with memory fallback
 - [x] Deterministic in-process mock testing; no fixture container is required
+- [x] Quality gates: rustfmt, clippy, cargo-deny, ruff, ty, pytest; CI on every pull request
 
 ## Base chat milestone
 
-- [x] Email/password login, MFA-code continuation, stored-session resume, QR remote-auth state, and logout
-- [x] Textual login/chat surface with modal-style navigation and standard focus keys
-- [x] Browse guild text channels and existing DMs
-- [x] Read chronological history and send text messages
-- [x] CAPTCHA-gated new-DM feedback; no creation request is attempted
+- [x] Email/password login, MFA method selection (authenticator, SMS, backup code), session restore, logout
+- [x] QR login following remote-auth v2, with expiry and retry
+- [x] Discord web-client identity headers, rate-limit buckets and CAPTCHA detection
+- [x] Gateway: zlib-stream, heartbeats, resume, invalid-session handling, guild subscriptions
+- [x] Browse servers, categories, text channels and existing DMs
+- [x] Live history: new/edited/deleted messages, paging older messages, day dividers
+- [x] Send, reply, edit, delete, retry with idempotent nonces
+- [x] Unread and mention badges, read acks, typing indicators
+- [x] CAPTCHA-gated feedback; no CAPTCHA-requiring request is attempted
 
 ## Resilience and accessibility
 
-- [ ] Gateway events, reconnect/resume, unread indicators, and message update/delete handling
-- [ ] Keyboard/keymap customization, screen-reader review, and terminal-size accessibility work
+- [x] Reconnect/resume and connection status in the UI
+- [x] Keyboard-first navigation: standard, vim and helix presets with per-action overrides
+- [x] Settings screen and file, themes (including high contrast), ASCII-only mode, reduced motion, narrow-terminal layout
+- [x] Internationalization (gettext): English, Brazilian Portuguese, Spanish
+- [ ] Screen-reader review
 
 ## CAPTCHA completion
 
@@ -31,7 +40,7 @@
 
 ## Later feature parity
 
-- [ ] Attachments, reactions, mentions, profiles, notifications, terminal image protocols, packaging, and plugin APIs
+- [ ] Attachment upload, reactions, threads/forums, member list, profiles, notifications, terminal image protocols, plugin APIs
 
 ## Testing policy
 
