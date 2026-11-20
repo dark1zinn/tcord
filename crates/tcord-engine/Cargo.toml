@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 base64 = "0.22"
+jiff = "0.2"
 futures-util = "0.3"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }

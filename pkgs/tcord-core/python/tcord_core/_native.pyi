@@ -1,15 +1,92 @@
+from datetime import datetime
 from typing import Literal, final
 
 @final
+class User:
+    id: str
+    username: str
+    global_name: str | None
+    bot: bool
+
+@final
+class QrUser:
+    id: str
+    discriminator: str
+    avatar: str | None
+    username: str
+
+@final
 class AuthState:
+    version: int
     kind: str
-    qr_payload: str | None
-    expires_at: str | None
-    mfa_kind: str | None
-    user_id: str | None
-    username: str | None
-    message: str | None
-    session_will_not_be_saved: bool
+    mfa_methods: list[str]
+    qr_url: str | None
+    qr_expires_at: datetime | None
+    qr_user: QrUser | None
+    user: User | None
+    failure: str | None
+    retry_after: float | None
+    session_persisted: bool
+
+@final
+class Role:
+    id: str
+    name: str
+    color: int
+
+@final
+class Channel:
+    id: str
+    kind: int
+    name: str | None
+    guild_id: str | None
+    position: int
+    parent_id: str | None
+    last_message_id: str | None
+    topic: str | None
+    recipients: list[User]
+
+@final
+class Guild:
+    id: str
+    name: str
+    icon: str | None
+    channels: list[Channel]
+    roles: list[Role]
+    unavailable: bool
+
+@final
+class Attachment:
+    filename: str
+    url: str
+    size: int
+
+@final
+class MessageReference:
+    message_id: str
+    channel_id: str
+    guild_id: str | None
+    def __init__(self, message_id: str, channel_id: str, guild_id: str | None = None) -> None: ...
+
+@final
+class Message:
+    id: str
+    channel_id: str
+    guild_id: str | None
+    author: User
+    author_nick: str | None
+    content: str
+    timestamp: datetime
+    edited_timestamp: datetime | None
+    kind: int
+    mention_ids: list[str]
+    mention_role_ids: list[str]
+    mention_everyone: bool
+    attachments: list[Attachment]
+    embed_titles: list[str]
+    nonce: str | None
+    @property
+    def referenced(self) -> Message | None: ...
 
 @final
 class Session:
@@ -19,16 +96,26 @@ class Session:
         remote_auth_url: str | None = None,
         credential_store: Literal["system", "memory"] = "system",
     ) -> None: ...
-    def login_with_password(self, email: str, password: str) -> AuthState: ...
-    def submit_mfa(self, code: str) -> AuthState: ...
-    def begin_qr_login(self) -> AuthState: ...
-    def resume_stored_session(self) -> AuthState: ...
-    def logout(self) -> AuthState: ...
     def auth_state(self) -> AuthState: ...
-    def get_guilds(self) -> str: ...
-    def get_channels(self, guild_id: str) -> str: ...
-    def get_dms(self) -> str: ...
-    def load_message_history(
+    def cancel_qr_login(self) -> None: ...
+    def close(self) -> None: ...
+    async def wait_auth_change(self, after_version: int) -> AuthState: ...
+    async def resume_session(self) -> AuthState: ...
+    async def login_password(self, login: str, password: str) -> AuthState: ...
+    async def submit_mfa(self, method: str, code: str) -> AuthState: ...
+    async def start_qr_login(self) -> AuthState: ...
+    async def logout(self) -> AuthState: ...
+    async def set_remember_session(self, enabled: bool) -> AuthState: ...
+    async def fetch_guilds(self) -> list[Guild]: ...
+    async def fetch_guild_channels(self, guild_id: str) -> list[Channel]: ...
+    async def fetch_private_channels(self) -> list[Channel]: ...
+    async def fetch_messages(
         self, channel_id: str, before: str | None = None, limit: int = 50
-    ) -> str: ...
-    def send_message(self, channel_id: str, content: str) -> str: ...
+    ) -> list[Message]: ...
+    async def send_message(
+        self,
+        channel_id: str,
+        content: str,
+        reply_to: MessageReference | None = None,
+        nonce: str | None = None,
+    ) -> Message: ...

@@ -1,29 +1,39 @@
-import asyncio
-from typing import Any
+import tcord_core
 
+from ..models import AuthState, MfaMethod
 from ..protocols import AuthProtocol
+from . import convert
 
 
 class Auth(AuthProtocol):
-    """Async facade over the Rust session; secrets never enter Python state."""
+    """Authentication facade; secrets never leave the native engine."""
 
-    def __init__(self, engine: Any) -> None:
+    def __init__(self, engine: tcord_core.Session) -> None:
         self._engine = engine
 
-    async def login_with_password(self, email: str, password: str) -> Any:
-        return await asyncio.to_thread(self._engine.login_with_password, email, password)
+    def state(self) -> AuthState:
+        return convert.auth_state(self._engine.auth_state())
 
-    async def submit_mfa(self, code: str) -> Any:
-        return await asyncio.to_thread(self._engine.submit_mfa, code)
+    async def wait_for_change(self, after_version: int) -> AuthState:
+        return convert.auth_state(await self._engine.wait_auth_change(after_version))
 
-    async def login_with_qr(self) -> Any:
-        return await asyncio.to_thread(self._engine.begin_qr_login)
+    async def resume_session(self) -> AuthState:
+        return convert.auth_state(await self._engine.resume_session())
 
-    async def resume_stored_session(self) -> Any:
-        return await asyncio.to_thread(self._engine.resume_stored_session)
+    async def login_password(self, login: str, password: str) -> AuthState:
+        return convert.auth_state(await self._engine.login_password(login, password))
 
-    async def auth_state(self) -> Any:
-        return await asyncio.to_thread(self._engine.auth_state)
+    async def submit_mfa(self, method: MfaMethod, code: str) -> AuthState:
+        return convert.auth_state(await self._engine.submit_mfa(method.value, code))
 
-    async def logoff(self) -> Any:
-        return await asyncio.to_thread(self._engine.logout)
+    async def start_qr_login(self) -> AuthState:
+        return convert.auth_state(await self._engine.start_qr_login())
+
+    def cancel_qr_login(self) -> None:
+        self._engine.cancel_qr_login()
+
+    async def logout(self) -> AuthState:
+        return convert.auth_state(await self._engine.logout())
+
+    async def set_remember_session(self, enabled: bool) -> AuthState:
+        return convert.auth_state(await self._engine.set_remember_session(enabled))

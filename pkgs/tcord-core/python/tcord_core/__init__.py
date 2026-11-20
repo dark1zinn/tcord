@@ -1,5 +1,53 @@
 """Python entry point for the Rust Tcord engine."""
 
-from ._native import AuthState, Session
+from ._errors import (
+    AuthenticationError,
+    CancelledError,
+    CaptchaRequiredError,
+    CredentialStoreError,
+    HttpError,
+    InvalidInputError,
+    NetworkError,
+    NotFoundError,
+    PermissionDeniedError,
+    ProtocolError,
+    RateLimitedError,
+    TcordError,
+)
+from ._native import (
+    Attachment,
+    AuthState,
+    Channel,
+    Guild,
+    Message,
+    MessageReference,
+    QrUser,
+    Role,
+    Session,
+    User,
+)
 
-__all__ = ["AuthState", "Session"]
+__all__ = [
+    "Attachment",
+    "AuthState",
+    "AuthenticationError",
+    "CancelledError",
+    "CaptchaRequiredError",
+    "Channel",
+    "CredentialStoreError",
+    "Guild",
+    "HttpError",
+    "InvalidInputError",
+    "Message",
+    "MessageReference",
+    "NetworkError",
+    "NotFoundError",
+    "PermissionDeniedError",
+    "ProtocolError",
+    "QrUser",
+    "RateLimitedError",
+    "Role",
+    "Session",
+    "TcordError",
+    "User",
+]

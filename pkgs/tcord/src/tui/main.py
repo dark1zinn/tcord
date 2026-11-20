@@ -1,8 +1,9 @@
-import asyncio
 from dataclasses import dataclass, field
 from typing import ClassVar
 
 from client import TcordClient
+from client.models import AuthKind, MfaMethod
+from client.protocols import ClientProtocol
 from tcord_core import Session
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -44,9 +45,9 @@ class Tui(App):
     .hidden { display: none; }
     """
 
-    def __init__(self, client: TcordClient | None = None) -> None:
+    def __init__(self, client: ClientProtocol | None = None) -> None:
         super().__init__()
-        self.client = client or TcordClient(Session())
+        self.client = client if client is not None else TcordClient(Session())
         self.state = ChatState()
         self.modal_keymap = True
 
@@ -70,7 +71,7 @@ class Tui(App):
 
     async def on_mount(self) -> None:
         self.query_one("#email", Input).focus()
-        await self.client.auth.resume_stored_session()
+        await self.client.auth.resume_session()
         await self._await_auth()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -82,70 +83,65 @@ class Tui(App):
             await self._send()
 
     async def _login(self) -> None:
-        await self.client.auth.login_with_password(
+        await self.client.auth.login_password(
             self.query_one("#email", Input).value, self.query_one("#password", Input).value
         )
         self.query_one("#password", Input).value = ""
         await self._await_auth()
 
     async def _mfa(self) -> None:
-        await self.client.auth.submit_mfa(self.query_one("#mfa", Input).value)
+        methods = self.client.auth.state().mfa_methods or (MfaMethod.TOTP,)
+        await self.client.auth.submit_mfa(methods[0], self.query_one("#mfa", Input).value)
         self.query_one("#mfa", Input).value = ""
         await self._await_auth()
 
     async def _await_auth(self) -> None:
-        for _ in range(300):
-            auth = await self.client.auth.auth_state()
-            if auth.kind == "authenticated":
-                await self._show_chat()
-                return
-            if auth.kind == "waiting_for_mfa":
-                self.query_one("#mfa", Input).focus()
-                return
-            if auth.kind == "failed":
-                self.query_one("#login-status", Static).update(auth.message or "Sign in failed")
-                return
-            await asyncio.sleep(0.05)
+        auth = self.client.auth.state()
+        if auth.kind == AuthKind.AUTHENTICATED:
+            await self._show_chat()
+        elif auth.kind == AuthKind.WAITING_FOR_MFA:
+            self.query_one("#mfa", Input).focus()
+        elif auth.failure is not None:
+            self.query_one("#login-status", Static).update(f"Sign in failed: {auth.failure}")
 
     async def _show_chat(self) -> None:
         self.query_one("#login").add_class("hidden")
         self.query_one("#chat").remove_class("hidden")
-        guilds = await self.client.relations.get_guilds()
-        dms = await self.client.relations.get_dms()
+        guilds = await self.client.gateway.guilds()
+        dms = await self.client.gateway.private_channels()
         view = self.query_one("#guilds", ListView)
-        view.clear()
+        await view.clear()
         for guild in guilds:
-            view.append(ListItem(Label(guild.name), id=f"guild:{guild.id}"))
+            view.append(ListItem(Label(guild.name), id=f"guild-{guild.id}"))
         for dm in dms:
-            view.append(ListItem(Label(f"DM · {dm.name}"), id=f"dm:{dm.id}"))
+            names = ", ".join(user.display_name for user in dm.recipients)
+            view.append(ListItem(Label(f"DM · {dm.name or names}"), id=f"dm-{dm.id}"))
         view.focus()
 
     async def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if not event.item or not event.item.id:
             return
-        item_id = event.item.id
+        kind, value = event.item.id.split("-", 1)
         if event.list_view.id == "guilds":
-            kind, value = item_id.split(":", 1)
             if kind == "dm":
-                await self._select_channel(value, "DM")
-            else:
-                channels = await self.client.relations.get_channels(value)
-                view = self.query_one("#channels", ListView)
-                view.clear()
-                for channel in channels:
-                    view.append(ListItem(Label(channel.name), id=f"channel:{channel.id}"))
-                view.focus()
+                await self._select_channel(value, str(event.item.query_one(Label).content))
+                return
+            channels = await self.client.gateway.guild_channels(value)
+            view = self.query_one("#channels", ListView)
+            await view.clear()
+            for channel in channels:
+                if channel.is_readable:
+                    view.append(ListItem(Label(channel.name or ""), id=f"channel-{channel.id}"))
+            view.focus()
         elif event.list_view.id == "channels":
-            await self._select_channel(
-                item_id.split(":", 1)[1], str(event.item.query_one(Label).content)
-            )
+            await self._select_channel(value, str(event.item.query_one(Label).content))
 
     async def _select_channel(self, channel_id: str, title: str) -> None:
         self.state.active_channel = channel_id
         self.query_one("#channel-title", Static).update(title)
-        messages = await self.client.channel.load_message_history(channel_id)
+        messages = await self.client.messages.history(channel_id)
         self.query_one("#timeline", Static).update(
-            "\n".join(f"{message.author}: {message.content}" for message in messages)
+            "\n".join(f"{message.author_name}: {message.content}" for message in messages)
         )
 
     async def _send(self) -> None:
@@ -154,10 +150,10 @@ class Tui(App):
         composer = self.query_one("#composer", Input)
         if not composer.value:
             return
-        message = await self.client.channel.send_message(self.state.active_channel, composer.value)
+        message = await self.client.messages.send(self.state.active_channel, composer.value)
         composer.value = ""
         timeline = self.query_one("#timeline", Static)
-        timeline.update(f"{timeline.content}\n{message.author}: {message.content}")
+        timeline.update(f"{timeline.content}\n{message.author_name}: {message.content}")
 
     def action_focus_composer(self) -> None:
         self.query_one("#composer", Input).focus()
@@ -177,16 +173,17 @@ class Tui(App):
         self.modal_keymap = not self.modal_keymap
 
     async def action_qr_login(self) -> None:
-        auth = await self.client.auth.login_with_qr()
-        if auth.kind == "waiting_for_qr" and auth.qr_payload:
+        auth = await self.client.auth.start_qr_login()
+        if auth.kind == AuthKind.WAITING_FOR_QR and auth.qr_url:
             self.query_one("#login-status", Static).update(
-                f"Scan QR payload: {auth.qr_payload} (expires: {auth.expires_at})"
+                f"Scan QR payload: {auth.qr_url} (expires: {auth.qr_expires_at})"
             )
         else:
-            self.query_one("#login-status", Static).update(auth.message or "Preparing QR sign-in.")
+            status = f"QR sign-in failed: {auth.failure}" if auth.failure else "Preparing QR."
+            self.query_one("#login-status", Static).update(status)
 
     async def action_logout(self) -> None:
-        await self.client.auth.logoff()
+        await self.client.auth.logout()
         self.state = ChatState()
         self.query_one("#chat").add_class("hidden")
         self.query_one("#login").remove_class("hidden")

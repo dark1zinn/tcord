@@ -1,13 +1,20 @@
 from typing import Protocol
 
 from .auth import AuthProtocol
-from .channel import ChannelProtocol
-from .relations import RelationsProtocol
+from .gateway import GatewayProtocol
+from .messages import MessagesProtocol
 
 
 class ClientProtocol(Protocol):
     """Transport-agnostic client surface consumed by the TUI."""
 
-    auth: AuthProtocol
-    relations: RelationsProtocol
-    channel: ChannelProtocol
+    @property
+    def auth(self) -> AuthProtocol: ...
+
+    @property
+    def gateway(self) -> GatewayProtocol: ...
+
+    @property
+    def messages(self) -> MessagesProtocol: ...
+
+    def close(self) -> None: ...

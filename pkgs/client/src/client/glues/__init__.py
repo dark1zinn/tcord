@@ -1,3 +1,5 @@
-from .auth import Auth as Auth
-from .channel import Channel as Channel
-from .relations import Relations as Relations
+from .auth import Auth
+from .gateway import Gateway
+from .messages import Messages
+
+__all__ = ["Auth", "Gateway", "Messages"]

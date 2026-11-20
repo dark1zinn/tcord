@@ -1,5 +1,14 @@
-from .channel import Channel
-from .guild import Guild
+from .auth import AuthFailure, AuthKind, AuthState, MfaMethod, QrUser
+from .domain import (
+    Attachment,
+    Channel,
+    ChannelKind,
+    Guild,
+    MessageInfo,
+    MessageReference,
+    Role,
+    User,
+)
 from .ids import (
     ApplicationId,
     AttachmentId,
@@ -12,14 +21,17 @@ from .ids import (
     RoleId,
     UserId,
 )
-from .message import MessageInfo
-from .user import User
 
 __all__ = [
     "ApplicationId",
+    "Attachment",
     "AttachmentId",
+    "AuthFailure",
+    "AuthKind",
+    "AuthState",
     "Channel",
     "ChannelId",
+    "ChannelKind",
     "EmojiId",
     "ForumTagId",
     "Guild",
@@ -27,6 +39,10 @@ __all__ = [
     "Id",
     "MessageId",
     "MessageInfo",
+    "MessageReference",
+    "MfaMethod",
+    "QrUser",
+    "Role",
     "RoleId",
     "User",
     "UserId",

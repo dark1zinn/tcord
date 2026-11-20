@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use reqwest::Method;
+use secrecy::SecretString;
 use serde_json::{Value, json};
-use tokio::runtime::Runtime;
+use tokio_util::sync::CancellationToken;
 
 use crate::auth::AuthController;
 use crate::credentials::{CredentialStore, KeyringStore, MemoryStore};
+use crate::discord::{Channel, Guild, Message, MessageReference};
 use crate::error::{EngineError, Result};
 use crate::http::DiscordHttp;
-use crate::models::{AuthSnapshot, MfaMethod};
 
 #[derive(Clone, Debug, Default)]
 pub struct SessionConfig {
@@ -17,21 +18,15 @@ pub struct SessionConfig {
     pub memory_store: bool,
 }
 
-/// A Discord account session. Auth operations run in the background; REST calls block.
+/// A Discord account session: authentication plus authenticated REST operations.
 pub struct Session {
-    runtime: Runtime,
     auth: Arc<AuthController>,
     http: Arc<DiscordHttp>,
+    closed: CancellationToken,
 }
 
 impl Session {
     pub fn new(config: SessionConfig) -> Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("tcord-engine")
-            .enable_all()
-            .build()
-            .map_err(|error| EngineError::Network(error.to_string()))?;
         let http = Arc::new(DiscordHttp::new(config.api_base)?);
         let store: Arc<dyn CredentialStore> = if config.memory_store {
             Arc::new(MemoryStore::default())
@@ -44,9 +39,9 @@ impl Session {
             config.remote_auth_url,
         ));
         Ok(Self {
-            runtime,
             auth,
             http,
+            closed: CancellationToken::new(),
         })
     }
 
@@ -54,101 +49,135 @@ impl Session {
         &self.auth
     }
 
-    pub fn auth_state(&self) -> AuthSnapshot {
-        self.auth.snapshot()
+    /// Cancel every running operation. The session can no longer authenticate afterwards.
+    pub fn close(&self) {
+        self.closed.cancel();
+        self.auth.begin_op();
     }
 
-    pub fn login_with_password(&self, login: String, password: String) -> Result<AuthSnapshot> {
-        if login.trim().is_empty() || password.is_empty() {
-            return Err(EngineError::InvalidInput(
-                "login and password are required".into(),
-            ));
+    fn token(&self) -> Result<SecretString> {
+        if self.closed.is_cancelled() {
+            return Err(EngineError::Cancelled);
         }
-        let auth = Arc::clone(&self.auth);
-        self.runtime
-            .spawn(async move { auth.login_password(&login, &password).await });
-        Ok(self.auth.snapshot())
+        self.auth.token().ok_or(EngineError::Unauthorized)
     }
 
-    pub fn submit_mfa(&self, method: MfaMethod, code: String) -> Result<AuthSnapshot> {
-        if code.trim().is_empty() {
-            return Err(EngineError::InvalidInput(
-                "authentication code is required".into(),
-            ));
+    async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<Value> {
+        let token = self.token()?;
+        tokio::select! {
+            _ = self.closed.cancelled() => Err(EngineError::Cancelled),
+            result = self.http.send(method, path, Some(&token), query, body) => result,
         }
-        let auth = Arc::clone(&self.auth);
-        self.runtime
-            .spawn(async move { auth.submit_mfa(method, &code).await });
-        Ok(self.auth.snapshot())
     }
 
-    pub fn begin_qr_login(&self) -> AuthSnapshot {
-        let auth = Arc::clone(&self.auth);
-        self.runtime.spawn(async move { auth.start_qr().await });
-        self.auth.snapshot()
+    pub async fn fetch_guilds(&self) -> Result<Vec<Guild>> {
+        let value = self
+            .call(Method::GET, "/users/@me/guilds", &[], None)
+            .await?;
+        array(&value).map(Guild::from_value).collect()
     }
 
-    pub fn resume_stored_session(&self) -> AuthSnapshot {
-        let auth = Arc::clone(&self.auth);
-        self.runtime.spawn(async move { auth.resume().await });
-        self.auth.snapshot()
+    pub async fn fetch_guild_channels(&self, guild_id: &str) -> Result<Vec<Channel>> {
+        let value = self
+            .call(
+                Method::GET,
+                &format!("/guilds/{guild_id}/channels"),
+                &[],
+                None,
+            )
+            .await?;
+        array(&value)
+            .map(|channel| Channel::from_value(channel, Some(guild_id), &[]))
+            .collect()
     }
 
-    pub fn logout(&self) -> AuthSnapshot {
-        self.runtime.block_on(self.auth.logout())
+    pub async fn fetch_private_channels(&self) -> Result<Vec<Channel>> {
+        let value = self
+            .call(Method::GET, "/users/@me/channels", &[], None)
+            .await?;
+        array(&value)
+            .map(|channel| Channel::from_value(channel, None, &[]))
+            .collect()
     }
 
-    fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
-        let token = self.auth.token().ok_or(EngineError::Unauthorized)?;
-        self.runtime
-            .block_on(self.http.send(Method::GET, path, Some(&token), query, None))
-    }
-
-    pub fn get_guilds(&self) -> Result<String> {
-        self.get("/users/@me/guilds", &[])
-            .map(|value| value.to_string())
-    }
-
-    pub fn get_channels(&self, guild_id: &str) -> Result<String> {
-        self.get(&format!("/guilds/{guild_id}/channels"), &[])
-            .map(|value| value.to_string())
-    }
-
-    pub fn get_dms(&self) -> Result<String> {
-        self.get("/users/@me/channels", &[])
-            .map(|value| value.to_string())
-    }
-
-    pub fn load_message_history(
+    /// Fetch a page of history in chronological order (oldest first).
+    pub async fn fetch_messages(
         &self,
         channel_id: &str,
-        before: Option<String>,
-        limit: u16,
-    ) -> Result<String> {
+        before: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<Message>> {
+        if !(1..=100).contains(&limit) {
+            return Err(EngineError::InvalidInput(
+                "limit must be between 1 and 100".into(),
+            ));
+        }
         let mut query = vec![("limit", limit.to_string())];
         if let Some(before) = before {
-            query.push(("before", before));
+            query.push(("before", before.to_owned()));
         }
-        self.get(&format!("/channels/{channel_id}/messages"), &query)
-            .map(|value| value.to_string())
+        let value = self
+            .call(
+                Method::GET,
+                &format!("/channels/{channel_id}/messages"),
+                &query,
+                None,
+            )
+            .await?;
+        let mut messages: Vec<Message> = array(&value)
+            .map(Message::from_value)
+            .collect::<Result<_>>()?;
+        messages.sort_by_key(|message| message.id.parse::<u64>().unwrap_or(0));
+        Ok(messages)
     }
 
-    pub fn send_message(&self, channel_id: &str, content: &str) -> Result<String> {
+    pub async fn send_message(
+        &self,
+        channel_id: &str,
+        content: &str,
+        reply_to: Option<MessageReference>,
+        nonce: Option<String>,
+    ) -> Result<Message> {
         if content.trim().is_empty() {
             return Err(EngineError::InvalidInput(
                 "message content must not be empty".into(),
             ));
         }
-        let token = self.auth.token().ok_or(EngineError::Unauthorized)?;
-        let body = json!({"content": content});
-        self.runtime
-            .block_on(self.http.send(
+        let mut body = json!({"content": content});
+        if let Some(nonce) = nonce {
+            body["nonce"] = json!(nonce);
+        }
+        if let Some(reference) = reply_to {
+            body["message_reference"] = json!({
+                "message_id": reference.message_id,
+                "channel_id": reference.channel_id,
+                "guild_id": reference.guild_id,
+            });
+        }
+        let value = self
+            .call(
                 Method::POST,
                 &format!("/channels/{channel_id}/messages"),
-                Some(&token),
                 &[],
                 Some(&body),
-            ))
-            .map(|value| value.to_string())
+            )
+            .await?;
+        Message::from_value(&value)
     }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+fn array(value: &Value) -> impl Iterator<Item = &Value> {
+    value.as_array().into_iter().flatten()
 }
