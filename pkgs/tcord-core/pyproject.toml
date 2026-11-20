@@ -9,5 +9,6 @@ requires = ["maturin>=1.14,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-module-name = "tcord_core"
+module-name = "tcord_core._native"
+python-source = "python"
 features = ["pyo3/extension-module"]

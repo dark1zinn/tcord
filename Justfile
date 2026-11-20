@@ -46,7 +46,7 @@ deny:
 
 # Run the Rust engine tests
 test-rust: disk-guard
-    {{_nice}} cargo test -j 4 --workspace
+    {{_nice}} cargo test -j 4 -p tcord-engine
 
 # Build the extension and run the Python test suites
 test-py: core

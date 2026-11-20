@@ -10,7 +10,8 @@ use rsa::{
 use serde_json::{Value, json};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::{AuthStatus, SessionData, set_status};
+use crate::models::AuthStatus;
+use crate::session::{SessionData, set_status};
 
 pub(crate) async fn authenticate(data: Arc<Mutex<SessionData>>) -> Result<String, ()> {
     let (mut socket, _) = connect_async("wss://remote-auth-gateway.discord.gg/?v=2")

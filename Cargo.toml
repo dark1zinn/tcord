@@ -1,6 +1,6 @@
 # Rust workspace. Python packages are managed by uv (see pyproject.toml).
 [workspace]
-members = ["pkgs/tcord-core"]
+members = ["crates/tcord-engine", "pkgs/tcord-core"]
 resolver = "2"
 
 # Smaller target/ directory: keep only line tables for workspace crates.
