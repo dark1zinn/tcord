@@ -1,0 +1,18 @@
+# Portuguese (Brazil) translations for Tcord.
+# This file is distributed under the same license as the Tcord project (MIT).
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: tcord\n"
+"Report-Msgid-Bugs-To: https://github.com/dark1zinn/tcord/issues\n"
+"POT-Creation-Date: 2026-11-20 14:00-0300\n"
+"PO-Revision-Date: 2026-11-20 14:00-0300\n"
+"Last-Translator: Tcord contributors\n"
+"Language: pt_BR\n"
+"Language-Team: pt_BR <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+

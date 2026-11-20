@@ -52,8 +52,26 @@ test-rust: disk-guard
 test-py: core
     {{_nice}} uv run --no-sync pytest
 
+_locale := "pkgs/tcord/src/tcord/locale"
+
+# Extract translatable strings into the catalog template
+i18n-extract:
+    {{_nice}} uv run --no-sync pybabel extract -F pkgs/tcord/babel.cfg -k _ -k ngettext:1,2 -k pgettext:1c,2 --no-location --sort-output --project=tcord -o {{_locale}}/tcord.pot pkgs/tcord/src
+
+# Merge the template into every language catalog
+i18n-update:
+    {{_nice}} uv run --no-sync pybabel update -i {{_locale}}/tcord.pot -d {{_locale}} -D tcord --no-fuzzy-matching --ignore-pot-creation-date
+
+# Compile catalogs into the .mo files shipped with the package
+i18n-compile:
+    {{_nice}} uv run --no-sync pybabel compile -d {{_locale}} -D tcord --statistics
+
+# Fail when compiled catalogs are out of date
+i18n-check: i18n-compile
+    git diff --exit-code -- {{_locale}}
+
 # Everything CI checks
-check: lint deny test-rust test-py
+check: lint deny test-rust test-py i18n-check
 
 # Create a new pkg
 [arg('name', pattern='^[a-zA-Z0-9_-]+$')]
