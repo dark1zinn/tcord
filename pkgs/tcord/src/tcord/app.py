@@ -1,97 +1,185 @@
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from collections.abc import Awaitable, Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
 
-from client import TcordClient
-from client.models import AuthKind, MfaMethod
+from client.errors import TcordError
+from client.models import AuthKind, AuthState, Ready
 from client.protocols import ClientProtocol
-from tcord_core import Session
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+from client.state import ChatStore
+from textual.app import App, SystemCommand
+from textual.binding import Binding, BindingType
+from textual.command import CommandPalette
+from textual.screen import Screen
 
+from . import errors
 from .i18n import _
-from .keymap import Keymap
+from .keymap import GLOBAL_PRIORITY, Keymap
+from .screens.chat import ChatScreen
 from .screens.confirm import ConfirmScreen
+from .screens.help import HelpScreen
+from .screens.login import LoginScreen
 from .screens.settings import SettingsScreen
-from .settings import Settings, SettingsFile, SettingsLockedError
-
-
-@dataclass
-class ChatState:
-    active_channel: str | None = None
-    drafts: dict[str, str] = field(default_factory=dict)
+from .settings import PRESETS, Settings, SettingsFile, SettingsLockedError
+from .switcher import ChannelSwitcherProvider
+from .theme import register_themes
 
 
 class TcordApp(App):
-    BINDINGS: ClassVar = [
-        Binding("ctrl+c", "quit", "Quit"),
-        Binding("tab", "focus_next", "Next"),
-        Binding("shift+tab", "focus_previous", "Previous"),
-        Binding("f1", "toggle_help", "Help"),
-        Binding("f2", "open_settings", "Settings"),
-        Binding("ctrl+m", "toggle_keymap", "Keymap"),
-        Binding("q", "qr_login", "QR login"),
-        Binding("ctrl+l", "logout", "Logout"),
-        Binding("n", "new_dm", "New DM"),
-        Binding("j", "move_down", show=False),
-        Binding("k", "move_up", show=False),
-        Binding("i", "focus_composer", show=False),
-        Binding("escape", "leave_input", show=False),
+    """Owns the client, the chat store and the auth/gateway workers; switches screens."""
+
+    CSS_PATH = "tcord.tcss"
+    TITLE = "Tcord"
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("ctrl+q", "quit", show=False, priority=True, id="app.quit"),
+        Binding("ctrl+k", "open_switcher", show=False, priority=True, id="app.switcher"),
+        Binding("f1", "open_help", show=False, priority=True, id="app.help"),
     ]
-    CSS = """
-    #login, #chat { height: 1fr; }
-    #login { align: center middle; }
-    #login-form { width: 50; height: auto; }
-    #guilds { width: 24; }
-    #channels { width: 28; }
-    #timeline { height: 1fr; }
-    #composer { dock: bottom; }
-    #help { display: none; dock: bottom; }
-    .hidden { display: none; }
-    """
 
     def __init__(
         self,
-        client: ClientProtocol | None = None,
+        client: ClientProtocol,
         settings: Settings | None = None,
         settings_file: SettingsFile | None = None,
         warnings: list[str] | None = None,
     ) -> None:
         super().__init__()
+        self.client = client
         self.settings = settings if settings is not None else Settings()
         self.settings_file = settings_file or SettingsFile(Path("settings.toml"))
-        self._startup_warnings = warnings or []
-        self.client = client if client is not None else TcordClient(Session())
-        self.state = ChatState()
-        self.modal_keymap = True
+        self.store = ChatStore()
+        self.keymap, keymap_warnings = Keymap.from_settings(
+            self.settings.navigation.preset, self.settings.keymap
+        )
+        self._startup_warnings = [*(warnings or []), *keymap_warnings]
+        self.login_screen: LoginScreen | None = None
+        self.chat_screen: ChatScreen | None = None
+        self._connecting = False
+        self._persist_warned = False
 
-    def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
-        with Vertical(id="login"), Vertical(id="login-form"):
-            yield Label("Sign in to Tcord")
-            yield Input(placeholder="Email", id="email")
-            yield Input(placeholder="Password", password=True, id="password")
-            yield Input(placeholder="Authenticator or backup code", password=True, id="mfa")
-            yield Static("Enter credentials to sign in.", id="login-status")
-        with Horizontal(id="chat", classes="hidden"):
-            yield ListView(id="guilds")
-            yield ListView(id="channels")
-            with Vertical():
-                yield Static("Select a guild channel or existing DM", id="channel-title")
-                yield Static(id="timeline")
-                yield Input(placeholder="Message", id="composer")
-        yield Static(id="help")
-        yield Footer()
+    # ----- lifecycle -------------------------------------------------------------------------
 
-    async def on_mount(self) -> None:
+    def on_mount(self) -> None:
+        register_themes(self)
         self.apply_settings(self.settings)
         for warning in self._startup_warnings:
             self.notify(warning, severity="warning", timeout=8)
-        self.query_one("#email", Input).focus()
-        await self.client.auth.resume_session()
-        await self._await_auth()
+        self.login_screen = LoginScreen()
+        self.push_screen(self.login_screen)
+        self.run_worker(self._watch_auth(), group="auth-watch", exclusive=True)
+        self.run_auth(self.client.auth.resume_session())
+
+    def on_unmount(self) -> None:
+        self.client.close()
+
+    async def _watch_auth(self) -> None:
+        state = self.client.auth.state()
+        self._on_auth(state)
+        while True:
+            try:
+                state = await self.client.auth.wait_for_change(state.version)
+            except TcordError:
+                return
+            self._on_auth(state)
+
+    def _on_auth(self, state: AuthState) -> None:
+        if state.kind == AuthKind.AUTHENTICATED:
+            remember = self.settings.general.remember_session
+            if remember and not state.session_persisted and not self._persist_warned:
+                self._persist_warned = True
+                self.notify(
+                    _(
+                        "Couldn't save your session to the system keyring; "
+                        "you'll need to log in again next time."
+                    ),
+                    severity="warning",
+                    timeout=8,
+                )
+            if self.chat_screen is None and not self._connecting:
+                self._connecting = True
+                self.run_worker(self._connect(), group="connect", exclusive=True)
+            return
+        if self.chat_screen is not None or self._connecting:
+            self._leave_chat()
+        if self.login_screen is not None:
+            self.login_screen.update_state(state)
+
+    async def _connect(self) -> None:
+        try:
+            snapshot = await self.client.gateway.connect()
+        except TcordError as error:
+            self._connecting = False
+            self.report(error)
+            return
+        self.store.load_ready(snapshot)
+        chat = ChatScreen()
+        self.chat_screen = chat
+        self.login_screen = None
+        self._connecting = False
+        await self._replace_top(chat)
+        self.run_worker(self._pump_events(), group="events", exclusive=True)
+
+    async def _pump_events(self) -> None:
+        while (event := await self.client.gateway.next_event()) is not None:
+            changes = self.store.apply(event)
+            chat = self.chat_screen
+            if chat is None:
+                continue
+            if isinstance(event, Ready):
+                chat.reload()
+            else:
+                chat.apply_changes(changes)
+
+    def _leave_chat(self) -> None:
+        self.workers.cancel_group(self, "events")
+        self.workers.cancel_group(self, "connect")
+        self._connecting = False
+        self.store.reset()
+        self.chat_screen = None
+        login = LoginScreen()
+        self.login_screen = login
+        self.call_later(self._replace_top, login)
+
+    async def _replace_top(self, screen: Screen) -> None:
+        while len(self.screen_stack) > 2:
+            self.pop_screen()
+        await self.switch_screen(screen)
+
+    # ----- calls and errors ------------------------------------------------------------------
+
+    def report(self, error: BaseException) -> None:
+        text = errors.describe(error)
+        if text:
+            self.notify(text, severity="error")
+
+    async def guard[T](self, awaitable: Awaitable[T], *, quiet: bool = False) -> T | None:
+        """Await a client call; errors become notifications and ``None``."""
+        try:
+            return await awaitable
+        except TcordError as error:
+            if not quiet:
+                self.report(error)
+            return None
+
+    def run_auth(self, awaitable: Awaitable[object]) -> None:
+        """Run an auth call; its resulting state arrives through the auth watcher."""
+        self.run_worker(self.guard(awaitable), group="auth")
+
+    def set_remember_session(self, enabled: bool) -> None:
+        settings = replace(
+            self.settings, general=replace(self.settings.general, remember_session=enabled)
+        )
+
+        async def apply() -> None:
+            if await self._save_settings(settings):
+                self.settings = settings
+            await self.guard(self.client.auth.set_remember_session(enabled))
+
+        self.run_worker(apply(), group="settings", exclusive=True)
+
+    # ----- settings --------------------------------------------------------------------------
 
     def apply_settings(self, settings: Settings) -> None:
         """Apply everything that can change at runtime (language needs a restart)."""
@@ -103,23 +191,39 @@ class TcordApp(App):
                 _("Unknown theme {theme}; using the default.").format(theme=appearance.theme),
                 severity="warning",
             )
+            self.theme = "tcord-dark"
         self.animation_level = "none" if appearance.reduced_motion else "full"
         self.set_class(appearance.ascii_only, "-ascii")
         self.settings = settings
+        self.keymap, warnings = Keymap.from_settings(settings.navigation.preset, settings.keymap)
+        for warning in warnings:
+            self.notify(warning, severity="warning")
+        self.set_keymap(self._priority_keymap())
+        if self.chat_screen is not None and self.chat_screen.is_mounted:
+            self.chat_screen.apply_settings()
+
+    def _priority_keymap(self) -> dict[str, str]:
+        """Single-key, non-character bindings of global actions (they must work while typing)."""
+        keymap: dict[str, str] = {}
+        for action in GLOBAL_PRIORITY:
+            keys = [
+                sequence[0]
+                for sequence in self.keymap.sequences(action)
+                if len(sequence) == 1 and len(sequence[0]) > 1
+            ]
+            keymap[action] = ",".join(keys) if keys else "f24"
+        return keymap
 
     def action_open_settings(self) -> None:
+        if isinstance(self.screen, SettingsScreen):
+            return
         screen = SettingsScreen(
             self.settings,
             self.settings_file.path,
             sorted(self.available_themes),
-            self._keymap_lines(),
+            self.keymap.describe(),
         )
         self.push_screen(screen, self._settings_closed)
-
-    def _keymap_lines(self) -> list[str]:
-        navigation = self.settings.navigation
-        keymap, _warnings = Keymap.from_settings(navigation.preset, self.settings.keymap)
-        return keymap.describe()
 
     def _settings_closed(self, settings: Settings | None) -> None:
         if settings is not None:
@@ -131,7 +235,9 @@ class TcordApp(App):
             return
         self.apply_settings(settings)
         if settings.general.remember_session != previous.general.remember_session:
-            await self.client.auth.set_remember_session(settings.general.remember_session)
+            await self.guard(
+                self.client.auth.set_remember_session(settings.general.remember_session)
+            )
         if settings.general.language != previous.general.language:
             self.notify(_("Restart Tcord to apply the language change."))
 
@@ -150,128 +256,71 @@ class TcordApp(App):
             return False
         return True
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "password":
-            await self._login()
-        elif event.input.id == "mfa":
-            await self._mfa()
-        elif event.input.id == "composer":
-            await self._send()
-
-    async def _login(self) -> None:
-        await self.client.auth.login_password(
-            self.query_one("#email", Input).value, self.query_one("#password", Input).value
+    def _set_preset(self, preset: str) -> None:
+        settings = replace(
+            self.settings, navigation=replace(self.settings.navigation, preset=preset)
         )
-        self.query_one("#password", Input).value = ""
-        await self._await_auth()
+        self.run_worker(self._commit_settings(settings), group="settings", exclusive=True)
 
-    async def _mfa(self) -> None:
-        methods = self.client.auth.state().mfa_methods or (MfaMethod.TOTP,)
-        await self.client.auth.submit_mfa(methods[0], self.query_one("#mfa", Input).value)
-        self.query_one("#mfa", Input).value = ""
-        await self._await_auth()
+    # ----- global actions --------------------------------------------------------------------
 
-    async def _await_auth(self) -> None:
-        auth = self.client.auth.state()
-        if auth.kind == AuthKind.AUTHENTICATED:
-            await self._show_chat()
-        elif auth.kind == AuthKind.WAITING_FOR_MFA:
-            self.query_one("#mfa", Input).focus()
-        elif auth.failure is not None:
-            self.query_one("#login-status", Static).update(f"Sign in failed: {auth.failure}")
-
-    async def _show_chat(self) -> None:
-        self.query_one("#login").add_class("hidden")
-        self.query_one("#chat").remove_class("hidden")
-        guilds = await self.client.gateway.guilds()
-        dms = await self.client.gateway.private_channels()
-        view = self.query_one("#guilds", ListView)
-        await view.clear()
-        for guild in guilds:
-            view.append(ListItem(Label(guild.name), id=f"guild-{guild.id}"))
-        for dm in dms:
-            names = ", ".join(user.display_name for user in dm.recipients)
-            view.append(ListItem(Label(f"DM · {dm.name or names}"), id=f"dm-{dm.id}"))
-        view.focus()
-
-    async def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        if not event.item or not event.item.id:
+    def action_open_switcher(self) -> None:
+        if self.chat_screen is None or isinstance(self.screen, CommandPalette):
             return
-        kind, value = event.item.id.split("-", 1)
-        if event.list_view.id == "guilds":
-            if kind == "dm":
-                await self._select_channel(value, str(event.item.query_one(Label).content))
-                return
-            channels = await self.client.gateway.guild_channels(value)
-            view = self.query_one("#channels", ListView)
-            await view.clear()
-            for channel in channels:
-                if channel.is_readable:
-                    view.append(ListItem(Label(channel.name or ""), id=f"channel-{channel.id}"))
-            view.focus()
-        elif event.list_view.id == "channels":
-            await self._select_channel(value, str(event.item.query_one(Label).content))
-
-    async def _select_channel(self, channel_id: str, title: str) -> None:
-        self.state.active_channel = channel_id
-        self.query_one("#channel-title", Static).update(title)
-        messages = await self.client.messages.history(channel_id)
-        self.query_one("#timeline", Static).update(
-            "\n".join(f"{message.author_name}: {message.content}" for message in messages)
-        )
-
-    async def _send(self) -> None:
-        if not self.state.active_channel:
-            return
-        composer = self.query_one("#composer", Input)
-        if not composer.value:
-            return
-        message = await self.client.messages.send(self.state.active_channel, composer.value)
-        composer.value = ""
-        timeline = self.query_one("#timeline", Static)
-        timeline.update(f"{timeline.content}\n{message.author_name}: {message.content}")
-
-    def action_focus_composer(self) -> None:
-        self.query_one("#composer", Input).focus()
-
-    def action_leave_input(self) -> None:
-        self.query_one("#channels", ListView).focus()
-
-    def action_move_down(self) -> None:
-        if self.modal_keymap and not isinstance(self.focused, Input):
-            self.action_focus_next()
-
-    def action_move_up(self) -> None:
-        if self.modal_keymap and not isinstance(self.focused, Input):
-            self.action_focus_previous()
-
-    def action_toggle_keymap(self) -> None:
-        self.modal_keymap = not self.modal_keymap
-
-    async def action_qr_login(self) -> None:
-        auth = await self.client.auth.start_qr_login()
-        if auth.kind == AuthKind.WAITING_FOR_QR and auth.qr_url:
-            self.query_one("#login-status", Static).update(
-                f"Scan QR payload: {auth.qr_url} (expires: {auth.qr_expires_at})"
+        self.push_screen(
+            CommandPalette(
+                providers=[ChannelSwitcherProvider],
+                placeholder=_("Where would you like to go?"),
             )
-        else:
-            status = f"QR sign-in failed: {auth.failure}" if auth.failure else "Preparing QR."
-            self.query_one("#login-status", Static).update(status)
-
-    async def action_logout(self) -> None:
-        await self.client.auth.logout()
-        self.state = ChatState()
-        self.query_one("#chat").add_class("hidden")
-        self.query_one("#login").remove_class("hidden")
-        self.query_one("#timeline", Static).update("")
-        self.query_one("#composer", Input).value = ""
-        self.query_one("#email", Input).focus()
-
-    def action_new_dm(self) -> None:
-        self.query_one("#login-status", Static).update(
-            "Starting new DMs is disabled: Discord may require CAPTCHA completion. "
-            "System-webview CAPTCHA support is planned."
         )
 
-    def action_toggle_help(self) -> None:
-        self.query_one("#help").toggle_class("hidden")
+    def action_open_help(self) -> None:
+        if isinstance(self.screen, HelpScreen):
+            self.screen.dismiss(None)
+            return
+        self.push_screen(HelpScreen(self.keymap))
+
+    def action_logout(self) -> None:
+        async def run() -> None:
+            if await self.push_screen_wait(ConfirmScreen(_("Log out of Tcord?"), _("Log Out"))):
+                await self.guard(self.client.auth.logout())
+
+        self.run_worker(run(), group="logout", exclusive=True)
+
+    def action_reconnect(self) -> None:
+        async def run() -> None:
+            self.workers.cancel_group(self, "events")
+            self.client.gateway.disconnect()
+            snapshot = await self.guard(self.client.gateway.connect())
+            if snapshot is None:
+                return
+            self.store.load_ready(snapshot)
+            if self.chat_screen is not None:
+                self.chat_screen.reload()
+            self.run_worker(self._pump_events(), group="events", exclusive=True)
+
+        self.run_worker(run(), group="connect", exclusive=True)
+
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        yield from super().get_system_commands(screen)
+        yield SystemCommand(_("Settings"), _("Open Tcord settings"), self.action_open_settings)
+        yield SystemCommand(_("Help"), _("Show keyboard shortcuts"), self.action_open_help)
+        chat = self.chat_screen
+        if chat is None:
+            return
+        yield SystemCommand(_("Log out"), _("Sign out of this account"), self.action_logout)
+        yield SystemCommand(
+            _("Toggle server rail"), _("Show or hide the server list"), chat.action_toggle_rail
+        )
+        yield SystemCommand(
+            _("Toggle channel list"),
+            _("Show or hide the channel list"),
+            chat.action_toggle_channels,
+        )
+        for preset in PRESETS:
+            yield SystemCommand(
+                _("Navigation preset: {preset}").format(preset=preset),
+                _("Switch key bindings"),
+                lambda preset=preset: self._set_preset(preset),
+            )
+        yield SystemCommand(_("Reconnect"), _("Reconnect to the gateway"), self.action_reconnect)
