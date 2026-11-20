@@ -58,7 +58,7 @@ class _DiscordFixture(BaseHTTPRequestHandler):
         }
         self._reply(routes[self.path])
 
-    def log_message(self, *_: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         pass
 
 
@@ -74,7 +74,7 @@ async def client() -> AsyncIterator[TcordClient]:
             break
         await asyncio.sleep(0.01)
     else:
-        pytest.fail("fixture login did not authenticate")
+        raise AssertionError("fixture login did not authenticate")
     yield client
     await client.auth.logoff()
     server.shutdown()

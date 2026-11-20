@@ -38,3 +38,9 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PT"]
 
 [tool.ty.environment]
 python = ".venv"
+
+extra-paths = ["pkgs/tcord/src"]
+
+[tool.ty.analysis]
+# The extension ships without type stubs until the native API is typed.
+replace-imports-with-any = ["tcord_core"]

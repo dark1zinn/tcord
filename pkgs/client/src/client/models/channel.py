@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class Channel:
     id: str
     name: str
     is_dm: bool
 
-__all__ = [
-    'Channel'
-]
+
+__all__ = ["Channel"]

@@ -1,4 +1,4 @@
-from typing import Protocol, TypeVar, Generic, Optional
+from typing import Protocol
 
 # Types adapted from Concord <https://github.com/chojs23/concord>
 # Licenced under the GPL-3.0 License (https://github.com/chojs23/concord?tab=GPL-3.0-1-ov-file)
@@ -15,10 +15,12 @@ from typing import Protocol, TypeVar, Generic, Optional
 # since it's technically very far from the original source, maintaining more
 # of the core logic/handling than teh actual code, but we never know...
 
+
 # 1. The Protocol (The "Trait")
 # This dictates that any marker class MUST define a mention prefix.
 class MentionMarker(Protocol):
     mention_prefix: str
+
 
 # 2. The "Empty" Marker Classes
 # They hold no instance data, just the metadata required by the Protocol.
@@ -26,35 +28,41 @@ class MentionMarker(Protocol):
 class UserMarker:
     mention_prefix = "@"
 
+
 class ChannelMarker:
     mention_prefix = "#"
+
 
 class RoleMarker:
     mention_prefix = "@&"
 
+
 class MessageMarker:
-    mention_prefix = "" # Idk, needs more research on that
+    mention_prefix = ""  # Idk, needs more research on that
+
 
 class GuildMarker:
     mention_prefix = ""
 
+
 class EmojiMarker:
     mention_prefix = ""
+
 
 class AttachmentMarker:
     mention_prefix = ""
 
+
 class ApplicationMarker:
     mention_prefix = ""
+
 
 class ForumTagMarker:
     mention_prefix = ""
 
-# 3. The TypeVar bound to our Protocol
-M = TypeVar('M', bound=MentionMarker)
 
 # 4. The Universal Id Wrapper
-class Id(Generic[M]):
+class Id[M: MentionMarker]:
     # TODO: snowflake must be non-zero unsigned integer, should add checks for this
     def __init__(self, snowflake: int, marker: type[M]):
         self.snowflake = snowflake
@@ -63,6 +71,7 @@ class Id(Generic[M]):
     def to_mention(self) -> str:
         # Dynamically formats the mention string using the marker's rules
         return f"<{self.marker.mention_prefix}{self.snowflake}>"
+
 
 # 5. Creating strict type aliases for the rest of the codebase
 UserId = Id[UserMarker]
@@ -84,23 +93,23 @@ ForumTagId = Id[ForumTagMarker]
 # print(my_channel_id.to_mention())  # Output: <#987654321>
 
 __all__ = [
-    'Id',
-    'UserId',
-    'ChannelId',
-    'RoleId',
-    'MessageId',
-    'GuildId',
-    'EmojiId',
-    'AttachmentId',
-    'ApplicationId',
-    'ForumTagId',
-    'UserMarker',
-    'ChannelMarker',
-    'RoleMarker',
-    'MessageMarker',
-    'GuildMarker',
-    'EmojiMarker',
-    'AttachmentMarker',
-    'ApplicationMarker',
-    'ForumTagMarker',
+    "ApplicationId",
+    "ApplicationMarker",
+    "AttachmentId",
+    "AttachmentMarker",
+    "ChannelId",
+    "ChannelMarker",
+    "EmojiId",
+    "EmojiMarker",
+    "ForumTagId",
+    "ForumTagMarker",
+    "GuildId",
+    "GuildMarker",
+    "Id",
+    "MessageId",
+    "MessageMarker",
+    "RoleId",
+    "RoleMarker",
+    "UserId",
+    "UserMarker",
 ]

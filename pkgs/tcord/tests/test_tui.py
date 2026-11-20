@@ -54,7 +54,7 @@ class Client:
 
 
 async def test_captcha_gate_and_logout_reset() -> None:
-    app = Tui(Client())
+    app = Tui(Client())  # ty: ignore[invalid-argument-type]  # duck-typed fake client
     async with app.run_test() as pilot:
         assert not app.query_one("#chat").has_class("hidden")
         app.action_new_dm()

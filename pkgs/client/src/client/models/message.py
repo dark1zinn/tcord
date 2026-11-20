@@ -16,7 +16,7 @@ class MessageInfo:
     edited_timestamp: str | None = None
 
     @classmethod
-    def from_wire(cls, value: dict[str, Any]) -> "MessageInfo":
+    def from_wire(cls, value: dict[str, Any]) -> MessageInfo:
         return cls(
             id=str(value["id"]),
             channel_id=str(value["channel_id"]),
@@ -24,9 +24,7 @@ class MessageInfo:
             author=str(value["author"]),
             content=str(value.get("content", "")),
             timestamp=str(value["timestamp"]),
-            guild_id=(
-                str(value["guild_id"]) if value.get("guild_id") is not None else None
-            ),
+            guild_id=(str(value["guild_id"]) if value.get("guild_id") is not None else None),
             edited_timestamp=(
                 str(value["edited_timestamp"])
                 if value.get("edited_timestamp") is not None
