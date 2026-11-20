@@ -2,10 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
-use rand::rngs::OsRng;
-use rsa::{Oaep, RsaPrivateKey, pkcs8::EncodePublicKey};
+use rsa::{
+    PrivateKey,
+    pkcs8::{EncodePublicKey, LineEnding},
+    sha2::{Digest, Sha256},
+};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::{AuthStatus, SessionData, set_status};
@@ -14,16 +16,14 @@ pub(crate) async fn authenticate(data: Arc<Mutex<SessionData>>) -> Result<String
     let (mut socket, _) = connect_async("wss://remote-auth-gateway.discord.gg/?v=2")
         .await
         .map_err(|_| ())?;
-    let private_key = RsaPrivateKey::new(&mut OsRng, 2048).map_err(|_| ())?;
+    let private_key = PrivateKey::new(&mut getrandom::SysRng, 2048).map_err(|_| ())?;
     let public_key = private_key
         .to_public_key()
-        .to_public_key_pem(Default::default())
+        .to_public_key_pem(LineEnding::LF)
         .map_err(|_| ())?;
     socket
         .send(Message::Text(
-            json!({"op":"init","encoded_public_key":public_key})
-                .to_string()
-                .into(),
+            json!({"op":"init","encoded_public_key":public_key}).to_string(),
         ))
         .await
         .map_err(|_| ())?;
@@ -50,8 +50,7 @@ pub(crate) async fn authenticate(data: Arc<Mutex<SessionData>>) -> Result<String
                 socket
                     .send(Message::Text(
                         json!({"op":"nonce_proof","proof":STANDARD.encode(Sha256::digest(nonce))})
-                            .to_string()
-                            .into(),
+                            .to_string(),
                     ))
                     .await
                     .map_err(|_| ())?;
@@ -62,9 +61,7 @@ pub(crate) async fn authenticate(data: Arc<Mutex<SessionData>>) -> Result<String
                         .map_err(|_| ())?;
                 socket
                     .send(Message::Text(
-                        json!({"op":"remote_auth_login","ticket":ticket})
-                            .to_string()
-                            .into(),
+                        json!({"op":"remote_auth_login","ticket":ticket}).to_string(),
                     ))
                     .await
                     .map_err(|_| ())?;
@@ -79,8 +76,8 @@ pub(crate) async fn authenticate(data: Arc<Mutex<SessionData>>) -> Result<String
     Err(())
 }
 
-fn decrypt(key: &RsaPrivateKey, payload: &Value, field: &str) -> Result<Vec<u8>, ()> {
+fn decrypt(key: &PrivateKey, payload: &Value, field: &str) -> Result<Vec<u8>, ()> {
     let encoded = payload.get(field).and_then(Value::as_str).ok_or(())?;
     let bytes = STANDARD.decode(encoded).map_err(|_| ())?;
-    key.decrypt(Oaep::new::<Sha256>(), &bytes).map_err(|_| ())
+    key.oaep_decrypt::<Sha256>(&bytes).map_err(|_| ())
 }
