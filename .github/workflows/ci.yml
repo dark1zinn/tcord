@@ -83,6 +83,14 @@ jobs:
       - name: Tests
         run: uv run --no-sync pytest
 
+      - name: Upload snapshot report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-report
+          path: snapshot_report.html
+          if-no-files-found: ignore
+
       - name: Translation catalogs are up to date
         run: |
           uv run --no-sync pybabel compile -d pkgs/tcord/src/tcord/locale -D tcord
