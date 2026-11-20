@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from client.models import (
     AuthKind,
     AuthState,
@@ -10,6 +12,9 @@ from client.models import (
     User,
 )
 from tcord.app import TcordApp
+from tcord.screens.settings import SettingsScreen
+from tcord.settings import Settings, SettingsFile
+from textual.widgets import Select
 
 AUTHENTICATED = AuthState(version=1, kind=AuthKind.AUTHENTICATED)
 
@@ -109,3 +114,20 @@ async def test_captcha_gate_and_logout_reset() -> None:
         await app.action_logout()
         assert app.query_one("#chat").has_class("hidden")
         await pilot.press("q")
+
+
+async def test_settings_screen_applies_and_saves_theme(tmp_path: Path) -> None:
+    settings_file = SettingsFile(tmp_path / "settings.toml")
+    app = TcordApp(Client(), Settings(), settings_file)
+    async with app.run_test() as pilot:
+        await pilot.press("f2")
+        screen = app.screen
+        assert isinstance(screen, SettingsScreen)
+        screen.query_one("#theme", Select).value = "textual-light"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        assert app.theme == "textual-light"
+    saved, warnings = settings_file.load()
+    assert saved.appearance.theme == "textual-light"
+    assert warnings == []

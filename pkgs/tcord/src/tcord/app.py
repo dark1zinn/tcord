@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import ClassVar
 
 from client import TcordClient
@@ -9,6 +10,11 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+
+from .i18n import _
+from .screens.confirm import ConfirmScreen
+from .screens.settings import SettingsScreen
+from .settings import Settings, SettingsFile, SettingsLockedError
 
 
 @dataclass
@@ -22,8 +28,8 @@ class TcordApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("tab", "focus_next", "Next"),
         Binding("shift+tab", "focus_previous", "Previous"),
-        Binding("question_mark", "toggle_help", "Help"),
         Binding("f1", "toggle_help", "Help"),
+        Binding("f2", "open_settings", "Settings"),
         Binding("ctrl+m", "toggle_keymap", "Keymap"),
         Binding("q", "qr_login", "QR login"),
         Binding("ctrl+l", "logout", "Logout"),
@@ -45,8 +51,17 @@ class TcordApp(App):
     .hidden { display: none; }
     """
 
-    def __init__(self, client: ClientProtocol | None = None) -> None:
+    def __init__(
+        self,
+        client: ClientProtocol | None = None,
+        settings: Settings | None = None,
+        settings_file: SettingsFile | None = None,
+        warnings: list[str] | None = None,
+    ) -> None:
         super().__init__()
+        self.settings = settings if settings is not None else Settings()
+        self.settings_file = settings_file or SettingsFile(Path("settings.toml"))
+        self._startup_warnings = warnings or []
         self.client = client if client is not None else TcordClient(Session())
         self.state = ChatState()
         self.modal_keymap = True
@@ -70,9 +85,61 @@ class TcordApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        self.apply_settings(self.settings)
+        for warning in self._startup_warnings:
+            self.notify(warning, severity="warning", timeout=8)
         self.query_one("#email", Input).focus()
         await self.client.auth.resume_session()
         await self._await_auth()
+
+    def apply_settings(self, settings: Settings) -> None:
+        """Apply everything that can change at runtime (language needs a restart)."""
+        appearance = settings.appearance
+        if appearance.theme in self.available_themes:
+            self.theme = appearance.theme
+        else:
+            self.notify(
+                _("Unknown theme {theme}; using the default.").format(theme=appearance.theme),
+                severity="warning",
+            )
+        self.animation_level = "none" if appearance.reduced_motion else "full"
+        self.set_class(appearance.ascii_only, "-ascii")
+        self.settings = settings
+
+    def action_open_settings(self) -> None:
+        screen = SettingsScreen(
+            self.settings, self.settings_file.path, sorted(self.available_themes), []
+        )
+        self.push_screen(screen, self._settings_closed)
+
+    def _settings_closed(self, settings: Settings | None) -> None:
+        if settings is not None:
+            self.run_worker(self._commit_settings(settings), group="settings", exclusive=True)
+
+    async def _commit_settings(self, settings: Settings) -> None:
+        previous = self.settings
+        if not await self._save_settings(settings):
+            return
+        self.apply_settings(settings)
+        if settings.general.remember_session != previous.general.remember_session:
+            await self.client.auth.set_remember_session(settings.general.remember_session)
+        if settings.general.language != previous.general.language:
+            self.notify(_("Restart Tcord to apply the language change."))
+
+    async def _save_settings(self, settings: Settings) -> bool:
+        try:
+            self.settings_file.save(settings)
+        except SettingsLockedError:
+            question = _("{path} is not valid TOML. Overwrite it with the new settings?").format(
+                path=self.settings_file.path
+            )
+            if not await self.push_screen_wait(ConfirmScreen(question, _("Overwrite"))):
+                return False
+            self.settings_file.save(settings, force=True)
+        except OSError as error:
+            self.notify(_("Couldn't save settings: {error}").format(error=error), severity="error")
+            return False
+        return True
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "password":

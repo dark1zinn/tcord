@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tcord VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-20 14:01-0300\n"
+"POT-Creation-Date: 2026-11-20 14:06-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,4 +16,121 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+msgid "12-hour"
+msgstr ""
+
+msgid "24-hour"
+msgstr ""
+
+msgid "ASCII-only symbols"
+msgstr ""
+
+msgid "Appearance"
+msgstr ""
+
+msgid "Automatic"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+#, python-brace-format
+msgid "Channel list width ({low}-{high})"
+msgstr ""
+
+#, python-brace-format
+msgid "Channel list width must be between {low} and {high}."
+msgstr ""
+
+msgid "Compact"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+#, python-brace-format
+msgid "Couldn't read {path}: {error}. Using default settings."
+msgstr ""
+
+#, python-brace-format
+msgid "Couldn't save settings: {error}"
+msgstr ""
+
+msgid "Cozy"
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+#, python-brace-format
+msgid "Invalid settings reset to defaults: {keys}"
+msgstr ""
+
+msgid "Key preset"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Layout"
+msgstr ""
+
+msgid "Message density"
+msgstr ""
+
+msgid "Navigation"
+msgstr ""
+
+#, python-brace-format
+msgid "Override single actions in the [keymap] table of {path}"
+msgstr ""
+
+msgid "Overwrite"
+msgstr ""
+
+msgid "Reduce motion"
+msgstr ""
+
+msgid "Remember me on this device"
+msgstr ""
+
+msgid "Restart Tcord to apply the language change."
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Show channel list"
+msgstr ""
+
+msgid "Show server rail"
+msgstr ""
+
+msgid "Show timestamps"
+msgstr ""
+
+msgid "Standard"
+msgstr ""
+
+msgid "Theme"
+msgstr ""
+
+msgid "Time format"
+msgstr ""
+
+#, python-brace-format
+msgid "Unknown settings ignored: {keys}"
+msgstr ""
+
+#, python-brace-format
+msgid "Unknown theme {theme}; using the default."
+msgstr ""
+
+#, python-brace-format
+msgid "{path} is not valid TOML. Overwrite it with the new settings?"
+msgstr ""
 
