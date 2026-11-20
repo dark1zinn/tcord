@@ -31,7 +31,11 @@ class FrozenDatetime(datetime):
 
 
 @pytest.fixture(autouse=True)
-def _deterministic_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _deterministic_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    # Rendering depends on the terminal's colour depth and the local timezone; pin both.
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
     monkeypatch.setattr(formatting, "datetime", FrozenDatetime)
