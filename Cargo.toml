@@ -10,6 +10,16 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# RSA key generation for QR login is unusably slow unoptimized.
+[profile.dev.package.rsa]
+opt-level = 3
+
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+
+[profile.dev.package.crypto-primes]
+opt-level = 3
+
 [profile.release]
 strip = true
 lto = "thin"
