@@ -73,6 +73,8 @@
             env = {
               # Required by rust-analyzer
               RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
+              # keyring's Secret Service backend loads libdbus at runtime
+              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.dbus ];
             };
           };
         }

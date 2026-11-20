@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -350,6 +350,18 @@ impl AuthController {
             self.publish(&op, AuthKind::LoggedOut, Some(AuthFailure::CredentialStore));
         }
         self.snapshot()
+    }
+
+    /// [`Self::invalidate`] only if `token` is still the active one (a later login wins).
+    pub fn invalidate_if_current(&self, token: &SecretString) {
+        let current = self
+            .lock()
+            .token
+            .as_ref()
+            .is_some_and(|active| active.expose_secret() == token.expose_secret());
+        if current {
+            self.invalidate();
+        }
     }
 
     /// Drop a session Discord rejected (HTTP 401 / gateway 4004).

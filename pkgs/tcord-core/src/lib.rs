@@ -319,11 +319,12 @@ type Awaitable<'py> = PyResult<Bound<'py, PyAny>>;
 #[pymethods]
 impl Session {
     #[new]
-    #[pyo3(signature = (api_base=None, remote_auth_url=None, credential_store="system"))]
+    #[pyo3(signature = (api_base=None, remote_auth_url=None, credential_store="system", locale="en-US"))]
     fn new(
         api_base: Option<String>,
         remote_auth_url: Option<String>,
         credential_store: &str,
+        locale: &str,
     ) -> PyResult<Self> {
         let memory_store = match credential_store {
             "system" => false,
@@ -338,6 +339,7 @@ impl Session {
             api_base,
             remote_auth_url,
             memory_store,
+            locale: Some(locale.to_owned()),
         })
         .map_err(EngineErr)?;
         Ok(Self {

@@ -16,6 +16,8 @@ pub struct SessionConfig {
     pub api_base: Option<String>,
     pub remote_auth_url: Option<String>,
     pub memory_store: bool,
+    /// Discord locale such as `en-US`; defaults to `en-US`.
+    pub locale: Option<String>,
 }
 
 /// A Discord account session: authentication plus authenticated REST operations.
@@ -27,7 +29,8 @@ pub struct Session {
 
 impl Session {
     pub fn new(config: SessionConfig) -> Result<Self> {
-        let http = Arc::new(DiscordHttp::new(config.api_base)?);
+        let locale = config.locale.unwrap_or_else(|| "en-US".into());
+        let http = Arc::new(DiscordHttp::with_locale(config.api_base, &locale)?);
         let store: Arc<dyn CredentialStore> = if config.memory_store {
             Arc::new(MemoryStore::default())
         } else {
@@ -70,10 +73,14 @@ impl Session {
         body: Option<&Value>,
     ) -> Result<Value> {
         let token = self.token()?;
-        tokio::select! {
+        let result = tokio::select! {
             _ = self.closed.cancelled() => Err(EngineError::Cancelled),
             result = self.http.send(method, path, Some(&token), query, body) => result,
+        };
+        if matches!(result, Err(EngineError::Unauthorized)) {
+            self.auth.invalidate_if_current(&token);
         }
+        result
     }
 
     pub async fn fetch_guilds(&self) -> Result<Vec<Guild>> {

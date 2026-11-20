@@ -6,6 +6,7 @@ pub mod credentials;
 pub mod discord;
 pub mod error;
 pub mod http;
+pub mod identity;
 pub mod models;
 mod remote_auth;
 mod session;

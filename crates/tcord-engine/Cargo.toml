@@ -12,7 +12,7 @@ jiff = "0.2"
 futures-util = "0.3"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "rustls-tls"] }
 rsa = "0.10"
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
