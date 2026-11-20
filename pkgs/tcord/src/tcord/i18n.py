@@ -67,3 +67,8 @@ def ngettext(singular: str, plural: str, count: int) -> str:
 
 def pgettext(context: str, message: str) -> str:
     return _translations.pgettext(context, message)
+
+
+def N_(message: str) -> str:
+    """Mark ``message`` for extraction without translating it (translate at display time)."""
+    return message

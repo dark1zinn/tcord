@@ -56,7 +56,7 @@ _locale := "pkgs/tcord/src/tcord/locale"
 
 # Extract translatable strings into the catalog template
 i18n-extract:
-    {{_nice}} uv run --no-sync pybabel extract -F pkgs/tcord/babel.cfg -k _ -k ngettext:1,2 -k pgettext:1c,2 --no-location --sort-output --project=tcord -o {{_locale}}/tcord.pot pkgs/tcord/src
+    {{_nice}} uv run --no-sync pybabel extract -F pkgs/tcord/babel.cfg -k _ -k N_ -k ngettext:1,2 -k pgettext:1c,2 --no-location --sort-output --project=tcord -o {{_locale}}/tcord.pot pkgs/tcord/src
 
 # Merge the template into every language catalog
 i18n-update:

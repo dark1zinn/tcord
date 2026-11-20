@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tcord VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-20 14:06-0300\n"
+"POT-Creation-Date: 2026-11-20 14:09-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,7 +32,13 @@ msgstr ""
 msgid "Automatic"
 msgstr ""
 
+msgid "Back"
+msgstr ""
+
 msgid "Cancel"
+msgstr ""
+
+msgid "Cancel reply or edit"
 msgstr ""
 
 #, python-brace-format
@@ -43,7 +49,13 @@ msgstr ""
 msgid "Channel list width must be between {low} and {high}."
 msgstr ""
 
+msgid "Command palette"
+msgstr ""
+
 msgid "Compact"
+msgstr ""
+
+msgid "Composer"
 msgstr ""
 
 msgid "Confirm"
@@ -60,7 +72,47 @@ msgstr ""
 msgid "Cozy"
 msgstr ""
 
+msgid "Delete message"
+msgstr ""
+
+msgid "Edit last message (empty composer)"
+msgstr ""
+
+msgid "Edit message"
+msgstr ""
+
+msgid "Focus channel list"
+msgstr ""
+
+msgid "Focus composer"
+msgstr ""
+
+msgid "Focus messages"
+msgstr ""
+
+msgid "Focus pane to the left"
+msgstr ""
+
+msgid "Focus pane to the right"
+msgstr ""
+
+msgid "Focus server rail"
+msgstr ""
+
 msgid "General"
+msgstr ""
+
+msgid "Global"
+msgstr ""
+
+msgid "Go to bottom"
+msgstr ""
+
+msgid "Go to top"
+msgstr ""
+
+#, python-brace-format
+msgid "Invalid key {key} for {action}"
 msgstr ""
 
 #, python-brace-format
@@ -68,6 +120,13 @@ msgid "Invalid settings reset to defaults: {keys}"
 msgstr ""
 
 msgid "Key preset"
+msgstr ""
+
+#, python-brace-format
+msgid "Key {key} for {action} conflicts with {other}; override ignored"
+msgstr ""
+
+msgid "Keyboard shortcuts"
 msgstr ""
 
 msgid "Language"
@@ -79,7 +138,31 @@ msgstr ""
 msgid "Message density"
 msgstr ""
 
+msgid "Messages"
+msgstr ""
+
+msgid "Move down"
+msgstr ""
+
+msgid "Move up"
+msgstr ""
+
 msgid "Navigation"
+msgstr ""
+
+msgid "New line"
+msgstr ""
+
+msgid "Next channel"
+msgstr ""
+
+msgid "Next server"
+msgstr ""
+
+msgid "Next unread channel"
+msgstr ""
+
+msgid "Open"
 msgstr ""
 
 #, python-brace-format
@@ -89,16 +172,46 @@ msgstr ""
 msgid "Overwrite"
 msgstr ""
 
+msgid "Page down"
+msgstr ""
+
+msgid "Page up"
+msgstr ""
+
+msgid "Previous channel"
+msgstr ""
+
+msgid "Previous server"
+msgstr ""
+
+msgid "Previous unread channel"
+msgstr ""
+
+msgid "Quick switcher"
+msgstr ""
+
+msgid "Quit"
+msgstr ""
+
 msgid "Reduce motion"
 msgstr ""
 
 msgid "Remember me on this device"
 msgstr ""
 
+msgid "Reply"
+msgstr ""
+
 msgid "Restart Tcord to apply the language change."
 msgstr ""
 
+msgid "Retry failed message"
+msgstr ""
+
 msgid "Save"
+msgstr ""
+
+msgid "Send"
 msgstr ""
 
 msgid "Settings"
@@ -120,6 +233,20 @@ msgid "Theme"
 msgstr ""
 
 msgid "Time format"
+msgstr ""
+
+msgid "Toggle channel list"
+msgstr ""
+
+msgid "Toggle server rail"
+msgstr ""
+
+#, python-brace-format
+msgid "Unknown key preset {preset}; using standard."
+msgstr ""
+
+#, python-brace-format
+msgid "Unknown keymap action {action}"
 msgstr ""
 
 #, python-brace-format

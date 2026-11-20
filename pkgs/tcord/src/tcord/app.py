@@ -12,6 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
 
 from .i18n import _
+from .keymap import Keymap
 from .screens.confirm import ConfirmScreen
 from .screens.settings import SettingsScreen
 from .settings import Settings, SettingsFile, SettingsLockedError
@@ -108,9 +109,17 @@ class TcordApp(App):
 
     def action_open_settings(self) -> None:
         screen = SettingsScreen(
-            self.settings, self.settings_file.path, sorted(self.available_themes), []
+            self.settings,
+            self.settings_file.path,
+            sorted(self.available_themes),
+            self._keymap_lines(),
         )
         self.push_screen(screen, self._settings_closed)
+
+    def _keymap_lines(self) -> list[str]:
+        navigation = self.settings.navigation
+        keymap, _warnings = Keymap.from_settings(navigation.preset, self.settings.keymap)
+        return keymap.describe()
 
     def _settings_closed(self, settings: Settings | None) -> None:
         if settings is not None:
