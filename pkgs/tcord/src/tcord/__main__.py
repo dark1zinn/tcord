@@ -1,3 +1,3 @@
-from tcord import main
+from tcord.cli import main
 
 main()

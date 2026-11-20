@@ -1,0 +1,18 @@
+[package]
+name = "tcord-core"
+version = "0.1.0"
+edition = "2024"
+description = "PyO3 bindings exposing the Tcord engine to Python"
+license = "MIT"
+publish = false
+
+[lib]
+name = "tcord_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jiff = "0.2"
+pyo3 = { version = "0.30", features = ["jiff-02"] }
+pyo3-async-runtimes = { version = "0.30", features = ["tokio-runtime"] }
+tcord-engine = { path = "../../crates/tcord-engine" }
+tokio = { version = "1", features = ["rt-multi-thread"] }

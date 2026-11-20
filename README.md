@@ -1,64 +1,152 @@
-# TCORD
+# Tcord
 
-That one TUI client you love!<br>
-tcord (*ticord*, `/ˈtiː kɔːrd/`) is aimed to be simple and don't do much, for now<br>
-the primary goal it has is to get the basics right, giving you the features of daily use<br>
-then don't expect much from it other than the default experience hidden in a cute UI
+Tcord is a keyboard-first Discord client for the terminal. Python
+([Textual](https://textual.textualize.io/)) owns the UI and chat state. Rust owns
+authentication, REST, the gateway and credential storage. Network work never runs in UI
+callbacks.
 
-## Wanna contribute?
+> Automating Discord user accounts may violate Discord's Terms of Service. Tcord is not
+> endorsed by Discord, and you are responsible for your own account risk.
 
-Issues and PRs are welcome!<br>
-Also join our [discord server](https://discord.gg/gpQTPTSHgZ) to discuss about it!<br>
-Just make sure to go through the existent issues/prs to avoid duplicates
+## Features
 
-### Development guide
+- **Login**: email or phone with password, two-factor (authenticator app, SMS or backup
+  code), and QR login with a countdown. The session is stored in the system keyring and
+  restored on the next launch. Logout works without restarting.
+- **Live chat over the gateway**: servers and DMs from READY, new, edited and deleted
+  messages, typing indicators, and unread and mention badges. Read acks are sent when you
+  view the latest message. The gateway reconnects and resumes on its own.
+- **Messages**: the history is grouped by author and divided by day, and older messages load
+  as you scroll up. Discord markdown, mentions, custom emoji and `<t:…>` timestamps are
+  rendered.
+- **Message actions**: send, reply, edit, delete and retry. A message shows as pending until
+  Discord confirms it. A failed send can be retried with the same nonce, so it is never
+  duplicated.
+- **Navigation**:
+  - standard, vim and helix key presets, with per-action overrides;
+  - a quick switcher (`ctrl+k`), the command palette (`ctrl+p`) and a help screen (`F1`).
+- **Interface**: three themes (`tcord-dark`, `tcord-light`, `tcord-high-contrast`), plus
+  every built-in Textual theme. Cozy and compact density, 12h/24h time, an ASCII-only mode,
+  reduced motion, and a layout that adapts to narrow terminals.
+- **Languages**: English, Brazilian Portuguese and Spanish.
 
-It is **HIGHLY** recommended that you use an Nix environment + [`direnv`](https://github.com/direnv/direnv)
-this makes light-years easier to boot up the needed dependencies including any quirks that might be necessary<br>
-If you do have Nix and direnv, just run `direnv allow` at the project root and wait for it to build the environment,
-it may be slow on the first time
+Not supported yet: voice, screen sharing, attachment upload, reactions, threads and forums,
+creating new DMs, and solving CAPTCHAs. When Discord asks for a CAPTCHA, Tcord explains this
+and suggests QR login. Tcord never writes tokens in plaintext.
 
-> ![WARN]
-> Please pay close attention on how the project is structured/organized and follow it
+## Usage
 
-On what this project depends to build:
-- Langs:
-  - Python `Comes with uv in the generated venv`
-  - Rust `Comes with Cargo`
-- Tools:
-  - [Just](https://just.systems/man/en/)
-  - [uv](https://docs.astral.sh/uv/getting-started/)
-  - [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
-  - gcc `Search for an installation guide for your system of gcc 15.2.0`
-  - ccache `Optional but nice to have for faster recompiles`
-- Packages:
-  - [maturin](https://pypi.org/project/maturin/)
-  - [PyO3](https://crates.io/crates/pyo3)
-  - [nuitka](https://pypi.org/project/Nuitka/)
-  - [click](https://pypi.org/project/click/)
-  - [textual](https://pypi.org/project/textual/)
-  - `other...`
+```text
+tcord [--config PATH] [--debug] [--version]
+```
 
-Then check the `Justfile`s around for a good insight on what to do next<br>
-Or `just -l` to get a list of available commands and their respective documentation<br>
-> Run `just b` to compile the binary then use `just r -b` to run it
-> more information about this part will be added soon, for now this should be enough for you to start
+- `--config` uses a different settings file.
+- `--debug` writes a log to the user log directory (`~/.local/state/tcord/log/tcord.log` on
+  Linux).
 
-#### Why there is Rust being used you ask?
+### Settings
 
-Glad you asked!<br>
-Well, first of all, the majority of this app, as of now, is intended to be in Python<br>
-- `Then why don't you keep it 100% Python?`<br>
-I could, but for some features/capabilities it's a good option to actually
-hand off the heavy work, voicechat handling for example, out of the way so the Python code
-is free to manage the app state and ui without the concern of being blocked<br>
-- `But why Rust specifically?`<br>
-I guess we all know Rust is memory-safe and a pain in the ass until the code is right, then
-I (dark1zin) can benefit from that on a way where the compiler will prevent me from shooting myself on the foot<br>
-But the actual reason, despite my lack of intelligence, is that it already have very good and stable implementations
-to generate the glue code through `maturin` and `PyO3` along with a wide range of *crates* to benefit from, such as `cpal`for audio I/O
+Open the settings screen with `F2`. Changes apply immediately, except the language, which
+needs a restart.
 
+Tcord reads the settings file from the first of these that applies:
 
-## Free for everyone and open-source
+1. the path given with `--config`;
+2. `$TCORD_CONFIG_DIR/settings.toml`;
+3. the platform config directory, for example `~/.config/tcord/settings.toml`.
 
-Licenced under [MIT](./LICENSE)
+The file is only created on the first save. It is written atomically with owner-only
+permissions.
+
+```toml
+schema_version = 1
+
+[general]
+language = "auto"          # auto | en | pt_BR | es
+remember_session = true    # keep the session in the system keyring
+
+[appearance]
+theme = "tcord-dark"       # tcord-dark | tcord-light | tcord-high-contrast | any Textual theme
+time_format = "24h"        # 24h | 12h
+show_timestamps = true
+message_density = "cozy"   # cozy | compact
+ascii_only = false
+reduced_motion = false
+
+[layout]
+show_server_rail = true
+show_channel_list = true
+channel_list_width = 28    # 20..48
+
+[navigation]
+preset = "standard"        # standard | vim | helix
+
+[keymap]                   # action id = key sequence(s); see docs/keymaps.md
+"cursor.down" = ["j", "down"]
+```
+
+Invalid values fall back to their defaults, and unknown keys are ignored. Both produce a
+warning at startup. If the file is not valid TOML, Tcord asks for confirmation before
+overwriting it.
+
+### Keys
+
+See [docs/keymaps.md](docs/keymaps.md) for every action, the three presets and the override
+syntax. `F1` inside the app always shows the bindings currently in effect.
+
+## Architecture
+
+| Path | Role |
+|---|---|
+| `crates/tcord-engine` | Pure-Rust engine on Tokio:<br>- auth state machine (password, MFA, QR remote-auth v2, session restore)<br>- keyring credential store<br>- REST client with rate-limit buckets and retries<br>- gateway (zlib-stream, heartbeat, resume, op 37 subscriptions)<br>- web-client identity headers |
+| `pkgs/tcord-core` | Thin PyO3 bindings (`tcord_core._native`) that expose engine calls as asyncio awaitables, plus typed stubs and exception classes. |
+| `pkgs/client` | UI-agnostic Python layer:<br>- typed models and protocols<br>- glues to the native module<br>- `ChatStore`, which turns READY and gateway events into chat state and change notifications |
+| `pkgs/tcord` | Textual application: screens, widgets, keymaps, settings, themes, i18n and the `tcord` CLI. |
+
+The Discord build number and Chrome version that Tcord identifies as are pinned in
+`crates/tcord-engine/client-identity.json`. The daily `Client identity` workflow
+(`.github/workflows/client-identity.yml`) refreshes them and opens a pull request when they
+change. Set the optional `CLIENT_IDENTITY_PR_TOKEN` secret so CI also runs on that pull
+request.
+
+## Development
+
+Use the Nix dev shell through `direnv`. It provides Python 3.14, Rust, `uv`, `maturin`,
+`just` and libdbus. Every build recipe checks for free disk space first and runs at lowered
+priority with 4 jobs.
+
+```text
+just sync          # install workspace packages and dev tools
+just core          # build the Rust extension into .venv
+just check         # lint (fmt, clippy, ruff, ty), cargo-deny, Rust + Python tests, catalog check
+just r             # run Tcord (just r -b runs the packaged binary)
+just b             # build a single-file binary with Nuitka
+```
+
+Translations use gettext with Babel. Wrap user-visible strings in `_()`, `ngettext()` or
+`N_()`, then run:
+
+```text
+just i18n-extract i18n-update   # refresh tcord.pot and merge it into each language
+# translate pkgs/tcord/src/tcord/locale/<lang>/LC_MESSAGES/tcord.po
+just i18n-compile               # rebuild the .mo files (committed)
+```
+
+A test fails if any template message is missing from the pt_BR or es catalog.
+
+## Testing
+
+Tests never talk to Discord:
+
+- Rust engine tests use wiremock and an in-process WebSocket gateway.
+- The Python client tests run the real extension against local HTTP and WebSocket fakes,
+  with an in-memory credential store.
+- The TUI is driven by Textual's pilot and a fake client.
+
+Manual tests on a live account are optional and never run in CI.
+
+## Reference and licensing boundaries
+
+Tcord is MIT licensed. Endcord is used only as a behavior reference; no code or structure is
+copied from it. Concord, Discordo and Oxicord are GPL-3.0 references, and Tcord includes none
+of their source.

@@ -1,6 +1,25 @@
-# This is just the workspace definition
-# For the actual app package see ./pkgs/tcord
-
+# Rust workspace. Python packages are managed by uv (see pyproject.toml).
 [workspace]
-members = ["./pkgs/*"]
+members = ["crates/tcord-engine", "pkgs/tcord-core"]
 resolver = "2"
+
+# Smaller target/ directory: keep only line tables for workspace crates.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# RSA key generation for QR login is unusably slow unoptimized.
+[profile.dev.package.rsa]
+opt-level = 3
+
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+
+[profile.dev.package.crypto-primes]
+opt-level = 3
+
+[profile.release]
+strip = true
+lto = "thin"

@@ -1,0 +1,646 @@
+# Spanish translations for Tcord.
+# This file is distributed under the same license as the Tcord project
+# (MIT).
+#
+msgid ""
+msgstr ""
+"Project-Id-Version:  tcord\n"
+"Report-Msgid-Bugs-To: https://github.com/dark1zinn/tcord/issues\n"
+"POT-Creation-Date: 2026-11-20 14:00-0300\n"
+"PO-Revision-Date: 2026-11-20 14:00-0300\n"
+"Last-Translator: Tcord contributors\n"
+"Language: es\n"
+"Language-Team: es <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid "#unknown-channel"
+msgstr "#canal-desconocido"
+
+msgid "(edited)"
+msgstr "(editado)"
+
+msgid "(failed — press R to retry)"
+msgstr "(error al enviar — pulsa R para reintentar)"
+
+msgid "12-hour"
+msgstr "12 horas"
+
+msgid "24-hour"
+msgstr "24 horas"
+
+msgid "@unknown-role"
+msgstr "@rol-desconocido"
+
+msgid "@unknown-user"
+msgstr "@usuario-desconocido"
+
+msgid "ASCII-only symbols"
+msgstr "Símbolos solo ASCII"
+
+msgid "Appearance"
+msgstr "Apariencia"
+
+msgid "Authenticator app"
+msgstr "App de autenticación"
+
+msgid "Automatic"
+msgstr "Automático"
+
+msgid "Back"
+msgstr "Atrás"
+
+msgid "Backup code"
+msgstr "Código de respaldo"
+
+msgid "Can't reach Discord"
+msgstr "No se puede conectar con Discord"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Cancel reply or edit"
+msgstr "Cancelar respuesta o edición"
+
+#, python-brace-format
+msgid "Channel list width ({low}-{high})"
+msgstr "Ancho de la lista de canales ({low}-{high})"
+
+#, python-brace-format
+msgid "Channel list width must be between {low} and {high}."
+msgstr "El ancho de la lista de canales debe estar entre {low} y {high}."
+
+#, python-brace-format
+msgid "Check your phone — logging in as {username}"
+msgstr "Revisa tu teléfono — iniciando sesión como {username}"
+
+msgid "Code"
+msgstr "Código"
+
+#, python-brace-format
+msgid "Code sent to {phone}"
+msgstr "Código enviado a {phone}"
+
+msgid "Command palette"
+msgstr "Paleta de comandos"
+
+msgid "Compact"
+msgstr "Compacto"
+
+msgid "Composer"
+msgstr "Redactor"
+
+msgid "Confirm"
+msgstr "Confirmar"
+
+msgid "Connected"
+msgstr "Conectado"
+
+msgid "Connecting…"
+msgstr "Conectando…"
+
+msgid "Couldn't reach Discord."
+msgstr "No se pudo conectar con Discord."
+
+#, python-brace-format
+msgid "Couldn't read {path}: {error}. Using default settings."
+msgstr "No se pudo leer {path}: {error}. Se usarán los ajustes predeterminados."
+
+#, python-brace-format
+msgid "Couldn't save settings: {error}"
+msgstr "No se pudieron guardar los ajustes: {error}"
+
+msgid ""
+"Couldn't save your session to the system keyring; you'll need to log in "
+"again next time."
+msgstr ""
+"No se pudo guardar tu sesión en el llavero del sistema; tendrás que iniciar "
+"sesión de nuevo la próxima vez."
+
+msgid "Cozy"
+msgstr "Cómodo"
+
+msgid "DMs"
+msgstr "MD"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Delete message"
+msgstr "Eliminar mensaje"
+
+msgid "Delete this message?"
+msgstr "¿Eliminar este mensaje?"
+
+msgid "Direct Messages"
+msgstr "Mensajes directos"
+
+msgid "Disconnected"
+msgstr "Desconectado"
+
+msgid ""
+"Discord asked for a CAPTCHA. CAPTCHA solving isn't supported yet — try QR"
+" login or retry later."
+msgstr ""
+"Discord pidió un CAPTCHA. Todavía no se admite resolverlo; prueba a iniciar "
+"sesión con QR o inténtalo más tarde."
+
+msgid "Discord requires phone verification. Finish it in the official app first."
+msgstr ""
+"Discord requiere verificación por teléfono. Complétala antes en la app oficial."
+
+msgid "Edit last message (empty composer)"
+msgstr "Editar último mensaje (redactor vacío)"
+
+msgid "Edit message"
+msgstr "Editar mensaje"
+
+msgid "Editing message — Escape to cancel"
+msgstr "Editando mensaje — Escape para cancelar"
+
+msgid "Email"
+msgstr "Correo"
+
+msgid "Email or phone number"
+msgstr "Correo o número de teléfono"
+
+msgid "Enter the code."
+msgstr "Introduce el código."
+
+msgid "Enter your email or phone number and password."
+msgstr "Introduce tu correo o número de teléfono y tu contraseña."
+
+#, python-brace-format
+msgid "Expires in {minutes}:{seconds:02d}"
+msgstr "Caduca en {minutes}:{seconds:02d}"
+
+msgid "F1 help · Ctrl+K switch"
+msgstr "F1 ayuda · Ctrl+K cambiar"
+
+msgid "Focus channel list"
+msgstr "Enfocar lista de canales"
+
+msgid "Focus composer"
+msgstr "Enfocar redactor"
+
+msgid "Focus messages"
+msgstr "Enfocar mensajes"
+
+msgid "Focus pane to the left"
+msgstr "Enfocar panel de la izquierda"
+
+msgid "Focus pane to the right"
+msgstr "Enfocar panel de la derecha"
+
+msgid "Focus server rail"
+msgstr "Enfocar barra de servidores"
+
+msgid "General"
+msgstr "General"
+
+msgid "Generating QR code…"
+msgstr "Generando código QR…"
+
+msgid "Global"
+msgstr "Global"
+
+msgid "Go to bottom"
+msgstr "Ir al final"
+
+msgid "Go to top"
+msgstr "Ir al principio"
+
+msgid "Help"
+msgstr "Ayuda"
+
+msgid "Highlight a message first."
+msgstr "Primero selecciona un mensaje."
+
+msgid "INSERT"
+msgstr "INSERTAR"
+
+msgid "Invalid code. Try again."
+msgstr "Código no válido. Inténtalo de nuevo."
+
+#, python-brace-format
+msgid "Invalid key {key} for {action}"
+msgstr "Tecla {key} no válida para {action}"
+
+#, python-brace-format
+msgid "Invalid settings reset to defaults: {keys}"
+msgstr "Ajustes no válidos restablecidos a los predeterminados: {keys}"
+
+msgid "Key preset"
+msgstr "Preajuste de teclas"
+
+#, python-brace-format
+msgid "Key {key} for {action} conflicts with {other}; override ignored"
+msgstr ""
+"La tecla {key} de {action} entra en conflicto con {other}; se ignora la "
+"personalización"
+
+msgid "Keyboard shortcuts"
+msgstr "Atajos de teclado"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Layout"
+msgstr "Diseño"
+
+msgid "Loading older messages…"
+msgstr "Cargando mensajes anteriores…"
+
+msgid "Log In"
+msgstr "Iniciar sesión"
+
+msgid "Log Out"
+msgstr "Cerrar sesión"
+
+msgid "Log out"
+msgstr "Cerrar sesión"
+
+msgid "Log out of Tcord?"
+msgstr "¿Cerrar sesión en Tcord?"
+
+msgid "Login or password is invalid."
+msgstr "El correo o la contraseña no son válidos."
+
+msgid "Message density"
+msgstr "Densidad de mensajes"
+
+#, python-brace-format
+msgid "Message {target}"
+msgstr "Mensaje a {target}"
+
+msgid "Messages"
+msgstr "Mensajes"
+
+#, python-brace-format
+msgid "Messages can be at most {limit} characters."
+msgstr "Los mensajes pueden tener como máximo {limit} caracteres."
+
+msgid "Move down"
+msgstr "Bajar"
+
+msgid "Move up"
+msgstr "Subir"
+
+msgid "NORMAL"
+msgstr "NORMAL"
+
+msgid "Navigation"
+msgstr "Navegación"
+
+#, python-brace-format
+msgid "Navigation preset: {preset}"
+msgstr "Preajuste de navegación: {preset}"
+
+msgid "New line"
+msgstr "Nueva línea"
+
+msgid "New messages ↓"
+msgstr "Mensajes nuevos ↓"
+
+msgid "Next channel"
+msgstr "Canal siguiente"
+
+msgid "Next server"
+msgstr "Servidor siguiente"
+
+msgid "Next unread channel"
+msgstr "Siguiente canal no leído"
+
+msgid "No unread channels here."
+msgstr "No hay canales sin leer aquí."
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Open Tcord settings"
+msgstr "Abrir ajustes de Tcord"
+
+msgid "Open a channel first."
+msgstr "Primero abre un canal."
+
+#, python-brace-format
+msgid "Override single actions in the [keymap] table of {path}"
+msgstr "Personaliza acciones concretas en la tabla [keymap] de {path}"
+
+msgid "Overwrite"
+msgstr "Sobrescribir"
+
+msgid "Page down"
+msgstr "Página abajo"
+
+msgid "Page up"
+msgstr "Página arriba"
+
+msgid "Password"
+msgstr "Contraseña"
+
+msgid "Press Escape to close"
+msgstr "Pulsa Escape para cerrar"
+
+msgid "Previous channel"
+msgstr "Canal anterior"
+
+msgid "Previous server"
+msgstr "Servidor anterior"
+
+msgid "Previous unread channel"
+msgstr "Canal no leído anterior"
+
+msgid "QR Code"
+msgstr "Código QR"
+
+msgid "QR login was cancelled."
+msgstr "Se canceló el inicio de sesión con QR."
+
+msgid "Quick switcher"
+msgstr "Cambio rápido"
+
+msgid "Quit"
+msgstr "Salir"
+
+msgid "Reconnect"
+msgstr "Volver a conectar"
+
+msgid "Reconnect to the gateway"
+msgstr "Volver a conectar con la pasarela"
+
+#, python-brace-format
+msgid "Reconnecting in {seconds}s…"
+msgstr "Reconectando en {seconds} s…"
+
+msgid "Reconnecting…"
+msgstr "Reconectando…"
+
+msgid "Reduce motion"
+msgstr "Reducir movimiento"
+
+msgid "Remember me on this device"
+msgstr "Recordarme en este dispositivo"
+
+msgid "Reply"
+msgstr "Responder"
+
+#, python-brace-format
+msgid "Replying to {name} — Escape to cancel"
+msgstr "Respondiendo a {name} — Escape para cancelar"
+
+msgid "Restart Tcord to apply the language change."
+msgstr "Reinicia Tcord para aplicar el cambio de idioma."
+
+msgid "Restoring your session…"
+msgstr "Restaurando tu sesión…"
+
+msgid "Resuming…"
+msgstr "Reanudando…"
+
+msgid "Retry"
+msgstr "Reintentar"
+
+msgid "Retry failed message"
+msgstr "Reintentar mensaje fallido"
+
+msgid "SMS"
+msgstr "SMS"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Scan with the Discord mobile app"
+msgstr "Escanea con la app móvil de Discord"
+
+msgid "Security keys aren't supported. Use another two-factor method."
+msgstr ""
+"Las llaves de seguridad no son compatibles. Usa otro método de verificación en "
+"dos pasos."
+
+msgid "Send"
+msgstr "Enviar"
+
+msgid "Send SMS code"
+msgstr "Enviar código por SMS"
+
+msgid "Settings"
+msgstr "Ajustes"
+
+msgid "Show channel list"
+msgstr "Mostrar lista de canales"
+
+msgid "Show keyboard shortcuts"
+msgstr "Mostrar atajos de teclado"
+
+msgid "Show or hide the channel list"
+msgstr "Mostrar u ocultar la lista de canales"
+
+msgid "Show or hide the server list"
+msgstr "Mostrar u ocultar la lista de servidores"
+
+msgid "Show server rail"
+msgstr "Mostrar barra de servidores"
+
+msgid "Show timestamps"
+msgstr "Mostrar marcas de tiempo"
+
+msgid "Sign out of this account"
+msgstr "Cerrar sesión en esta cuenta"
+
+#, python-brace-format
+msgid "Slow down — try again in {seconds}s"
+msgstr "Ve más despacio — inténtalo de nuevo en {seconds} s"
+
+#, python-brace-format
+msgid "Something went wrong: {message}"
+msgstr "Algo salió mal: {message}"
+
+msgid "Standard"
+msgstr "Estándar"
+
+msgid "Switch key bindings"
+msgstr "Cambiar combinaciones de teclas"
+
+msgid "That no longer exists."
+msgstr "Eso ya no existe."
+
+msgid "The QR code expired."
+msgstr "El código QR caducó."
+
+msgid "The system keyring is unavailable."
+msgstr "El llavero del sistema no está disponible."
+
+msgid "Theme"
+msgstr "Tema"
+
+msgid "This account is disabled or scheduled for deletion."
+msgstr "Esta cuenta está desactivada o programada para eliminarse."
+
+#, python-brace-format
+msgid "This is the beginning of {channel}"
+msgstr "Este es el inicio de {channel}"
+
+msgid "Time format"
+msgstr "Formato de hora"
+
+msgid "Today"
+msgstr "Hoy"
+
+msgid "Toggle channel list"
+msgstr "Alternar lista de canales"
+
+msgid "Toggle server rail"
+msgstr "Alternar barra de servidores"
+
+#, python-brace-format
+msgid "Too many attempts — try again in {seconds}s."
+msgstr "Demasiados intentos — inténtalo de nuevo en {seconds} s."
+
+msgid "Try again"
+msgstr "Intentar de nuevo"
+
+msgid "Two-factor authentication"
+msgstr "Verificación en dos pasos"
+
+#, python-brace-format
+msgid "Unknown key preset {preset}; using standard."
+msgstr "Preajuste de teclas desconocido {preset}; se usará el estándar."
+
+#, python-brace-format
+msgid "Unknown keymap action {action}"
+msgstr "Acción de teclas desconocida {action}"
+
+#, python-brace-format
+msgid "Unknown settings ignored: {keys}"
+msgstr "Ajustes desconocidos ignorados: {keys}"
+
+#, python-brace-format
+msgid "Unknown theme {theme}; using the default."
+msgstr "Tema desconocido {theme}; se usará el predeterminado."
+
+msgid "Unnamed conversation"
+msgstr "Conversación sin nombre"
+
+msgid "Verify"
+msgstr "Verificar"
+
+msgid "Voice channels aren't supported yet."
+msgstr "Los canales de voz todavía no son compatibles."
+
+msgid "We're so excited to see you again!"
+msgstr "¡Nos alegra mucho volver a verte!"
+
+msgid "Welcome back!"
+msgstr "¡Hola de nuevo!"
+
+msgid "Where would you like to go?"
+msgstr "¿A dónde quieres ir?"
+
+msgid "Yesterday"
+msgstr "Ayer"
+
+msgid "You can only delete your own messages"
+msgstr "Solo puedes eliminar tus propios mensajes"
+
+msgid "You can only edit your own messages"
+msgstr "Solo puedes editar tus propios mensajes"
+
+msgid "You don't have permission to do that."
+msgstr "No tienes permiso para hacer eso."
+
+msgid "Your session expired. Please log in again."
+msgstr "Tu sesión caducó. Inicia sesión de nuevo."
+
+#, python-brace-format
+msgid "in {n} day"
+msgid_plural "in {n} days"
+msgstr[0] "dentro de {n} día"
+msgstr[1] "dentro de {n} días"
+
+#, python-brace-format
+msgid "in {n} hour"
+msgid_plural "in {n} hours"
+msgstr[0] "dentro de {n} hora"
+msgstr[1] "dentro de {n} horas"
+
+#, python-brace-format
+msgid "in {n} minute"
+msgid_plural "in {n} minutes"
+msgstr[0] "dentro de {n} minuto"
+msgstr[1] "dentro de {n} minutos"
+
+#, python-brace-format
+msgid "in {n} month"
+msgid_plural "in {n} months"
+msgstr[0] "dentro de {n} mes"
+msgstr[1] "dentro de {n} meses"
+
+#, python-brace-format
+msgid "in {n} second"
+msgid_plural "in {n} seconds"
+msgstr[0] "dentro de {n} segundo"
+msgstr[1] "dentro de {n} segundos"
+
+#, python-brace-format
+msgid "in {n} year"
+msgid_plural "in {n} years"
+msgstr[0] "dentro de {n} año"
+msgstr[1] "dentro de {n} años"
+
+#, python-brace-format
+msgid "{a} and {b} are typing…"
+msgstr "{a} y {b} están escribiendo…"
+
+#, python-brace-format
+msgid "{a} is typing…"
+msgstr "{a} está escribiendo…"
+
+#, python-brace-format
+msgid "{count} person is typing…"
+msgid_plural "Several people are typing…"
+msgstr[0] "{count} persona está escribiendo…"
+msgstr[1] "Varias personas están escribiendo…"
+
+#, python-brace-format
+msgid "{n} day ago"
+msgid_plural "{n} days ago"
+msgstr[0] "hace {n} día"
+msgstr[1] "hace {n} días"
+
+#, python-brace-format
+msgid "{n} hour ago"
+msgid_plural "{n} hours ago"
+msgstr[0] "hace {n} hora"
+msgstr[1] "hace {n} horas"
+
+#, python-brace-format
+msgid "{n} minute ago"
+msgid_plural "{n} minutes ago"
+msgstr[0] "hace {n} minuto"
+msgstr[1] "hace {n} minutos"
+
+#, python-brace-format
+msgid "{n} month ago"
+msgid_plural "{n} months ago"
+msgstr[0] "hace {n} mes"
+msgstr[1] "hace {n} meses"
+
+#, python-brace-format
+msgid "{n} second ago"
+msgid_plural "{n} seconds ago"
+msgstr[0] "hace {n} segundo"
+msgstr[1] "hace {n} segundos"
+
+#, python-brace-format
+msgid "{n} year ago"
+msgid_plural "{n} years ago"
+msgstr[0] "hace {n} año"
+msgstr[1] "hace {n} años"
+
+#, python-brace-format
+msgid "{path} is not valid TOML. Overwrite it with the new settings?"
+msgstr "{path} no es un TOML válido. ¿Sobrescribirlo con los nuevos ajustes?"

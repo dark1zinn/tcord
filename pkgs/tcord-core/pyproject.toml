@@ -1,0 +1,14 @@
+[project]
+name = "tcord-core"
+version = "0.1.0"
+description = "Rust Discord transport bindings for Tcord"
+requires-python = ">=3.14"
+
+[build-system]
+requires = ["maturin>=1.14,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "tcord_core._native"
+python-source = "python"
+features = ["pyo3/extension-module"]

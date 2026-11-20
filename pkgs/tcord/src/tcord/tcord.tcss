@@ -1,0 +1,270 @@
+/* ----- shared ----------------------------------------------------------------------------- */
+
+.hidden {
+    display: none;
+}
+
+.dialog {
+    align: center middle;
+    background: $background 60%;
+}
+
+#dialog {
+    width: 80%;
+    max-width: 90;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: $surface;
+    border: round $primary;
+}
+
+#dialog #title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#dialog #buttons {
+    height: auto;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#dialog #buttons Button {
+    margin-left: 1;
+}
+
+#question {
+    margin-bottom: 1;
+}
+
+.setting-row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.setting-label {
+    width: 34;
+    padding-top: 1;
+}
+
+.setting-row Select {
+    width: 1fr;
+}
+
+.setting-row Input {
+    width: 12;
+}
+
+#keymap-list {
+    height: 12;
+    border: round $panel;
+}
+
+#help-body {
+    height: auto;
+    max-height: 30;
+}
+
+#help-hint {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* ----- login ------------------------------------------------------------------------------ */
+
+LoginScreen {
+    align: center middle;
+    background: $panel;
+}
+
+#login-card {
+    width: 100%;
+    max-width: 60;
+    height: auto;
+    padding: 1 2;
+    background: $surface;
+    border: round $primary;
+}
+
+#login-title {
+    text-style: bold;
+    text-align: center;
+    width: 100%;
+}
+
+#login-subtitle {
+    color: $text-muted;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#login-switcher, #restore-view, #credentials, #mfa {
+    height: auto;
+}
+
+#login-tabs {
+    height: auto;
+}
+
+#login-card Input, #login-card Button, #login-card Checkbox, #login-card RadioSet {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#login-error {
+    color: $error;
+    width: 100%;
+    max-width: 60;
+    height: auto;
+    text-align: center;
+}
+
+#restore-spinner {
+    height: 3;
+}
+
+#restore-status, #qr-status, #qr-countdown, #sms-status {
+    text-align: center;
+    width: 100%;
+}
+
+#qr-code {
+    width: auto;
+    height: auto;
+    margin: 1 0;
+}
+
+#qr-countdown {
+    color: $text-muted;
+}
+
+/* ----- chat ------------------------------------------------------------------------------- */
+
+ChatScreen {
+    layers: base overlay;
+}
+
+#body {
+    height: 1fr;
+}
+
+#rail {
+    width: 8;
+    height: 100%;
+    background: $panel;
+    border: none;
+}
+
+#sidebar {
+    width: 28;
+    height: 100%;
+    background: $surface;
+}
+
+#sidebar-header, #channel-header {
+    height: 1;
+    padding: 0 1;
+    text-style: bold;
+    background: $surface;
+    border-bottom: none;
+}
+
+#channels {
+    height: 1fr;
+    background: $surface;
+}
+
+#user-panel {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $text-muted;
+}
+
+#main {
+    width: 1fr;
+    height: 100%;
+}
+
+#messages {
+    height: 1fr;
+    border: none;
+    background: $background;
+}
+
+#messages > .option-list--option {
+    padding: 0 1;
+}
+
+#typing {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#banner {
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+}
+
+#banner.-empty {
+    display: none;
+}
+
+#banner.-error {
+    color: $error;
+}
+
+#composer {
+    height: auto;
+    max-height: 8;
+    min-height: 3;
+    border: round $panel;
+}
+
+#composer:focus {
+    border: round $primary;
+}
+
+#status {
+    dock: bottom;
+    width: 100%;
+    height: 1;
+    background: $panel;
+    padding: 0 1;
+}
+
+ChatScreen.-hide-rail #rail {
+    display: none;
+}
+
+ChatScreen.-hide-sidebar #sidebar {
+    display: none;
+}
+
+ChatScreen.-medium #rail {
+    display: none;
+}
+
+ChatScreen.-narrow #rail {
+    display: none;
+}
+
+ChatScreen.-narrow #sidebar {
+    display: none;
+}
+
+ChatScreen.-narrow.-sidebar-overlay #sidebar {
+    display: block;
+    layer: overlay;
+    dock: left;
+}
+
+/* ----- ascii-only borders ----------------------------------------------------------------- */
+
+App.-ascii #dialog, App.-ascii #login-card, App.-ascii #composer, App.-ascii #keymap-list {
+    border: ascii $primary;
+}

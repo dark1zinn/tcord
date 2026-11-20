@@ -4,7 +4,15 @@
 # Python stuff
 .venv/
 __pycache__/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
 
 # Bins/Builds
 dist/
+build/
 target/
+
+# Built extension modules
+*.so
+*.pyd

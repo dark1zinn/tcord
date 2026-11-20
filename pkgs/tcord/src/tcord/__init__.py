@@ -1,1 +1,1 @@
-from .main import main as main
+"""Tcord terminal client."""
