@@ -26,7 +26,6 @@ members = ["./pkgs/*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["pkgs/client/tests", "pkgs/tcord/tests", "tests"]
-pythonpath = ["pkgs/tcord/src"]
 
 [tool.ruff]
 line-length = 100
@@ -38,5 +37,3 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ASYNC", "PT"]
 
 [tool.ty.environment]
 python = ".venv"
-
-extra-paths = ["pkgs/tcord/src"]

@@ -17,7 +17,7 @@ class ChatState:
     drafts: dict[str, str] = field(default_factory=dict)
 
 
-class Tui(App):
+class TcordApp(App):
     BINDINGS: ClassVar = [
         Binding("ctrl+c", "quit", "Quit"),
         Binding("tab", "focus_next", "Next"),

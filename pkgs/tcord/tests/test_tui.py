@@ -9,7 +9,7 @@ from client.models import (
     ReadySnapshot,
     User,
 )
-from tui import Tui
+from tcord.app import TcordApp
 
 AUTHENTICATED = AuthState(version=1, kind=AuthKind.AUTHENTICATED)
 
@@ -101,7 +101,7 @@ class Client:
 
 
 async def test_captcha_gate_and_logout_reset() -> None:
-    app = Tui(Client())
+    app = TcordApp(Client())
     async with app.run_test() as pilot:
         assert not app.query_one("#chat").has_class("hidden")
         app.action_new_dm()

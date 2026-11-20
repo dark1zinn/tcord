@@ -10,8 +10,11 @@ requires-python = ">=3.14"
 dependencies = [
     "client",
     "click>=8.4.2",
+    "platformdirs>=4.3",
+    "segno>=1.6",
     "tcord-core",
     "textual>=8.2.8",
+    "tomli-w>=1.2",
 ]
 
 [tool.uv.sources]
@@ -19,4 +22,8 @@ client = { workspace = true }
 tcord-core = { workspace = true }
 
 [project.scripts]
-main = "tcord:main"
+tcord = "tcord.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
