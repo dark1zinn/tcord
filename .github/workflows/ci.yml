@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_JOBS: 4
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: PYO3_PYTHON=$(which python3) cargo clippy -j 4 --workspace --all-targets -- -D warnings
+
+      - name: Test tcord-engine
+        run: cargo test -j 4 -p tcord-engine
+
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Sync workspace
+        run: uv sync --all-packages --group dev
+
+      - name: Build tcord-core extension
+        run: uv run --no-sync maturin develop -j 4 --uv -m pkgs/tcord-core/Cargo.toml
+
+      - name: Ruff lint
+        run: uv run --no-sync ruff check .
+
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check .
+
+      - name: Type check
+        run: uv run --no-sync ty check
+
+      - name: Tests
+        run: uv run --no-sync pytest
+
+      - name: Translation catalogs are up to date
+        run: |
+          uv run --no-sync pybabel compile -d pkgs/tcord/src/tcord/locale -D tcord
+          git diff --exit-code -- pkgs/tcord/src/tcord/locale

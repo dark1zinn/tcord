@@ -1,0 +1,58 @@
+# Scheduled workflows run only from the default branch, so this one activates after it merges.
+# A pull request opened with the default GITHUB_TOKEN does not trigger other workflows (CI).
+# Set the optional CLIENT_IDENTITY_PR_TOKEN secret (a PAT or GitHub App token) so CI runs on the
+# generated PR; without it the PR is created but CI must be started manually.
+name: Client identity
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: client-identity
+
+jobs:
+  update:
+    name: Update pinned client build number
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Check for a newer client build
+        id: check
+        run: python scripts/update_client_identity.py --check
+
+      - name: Rewrite client identity file
+        if: steps.check.outputs.changed == 'true'
+        run: python scripts/update_client_identity.py --write
+
+      - name: Open pull request
+        if: steps.check.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.CLIENT_IDENTITY_PR_TOKEN || github.token }}
+          branch: chore/client-identity
+          base: main
+          delete-branch: true
+          commit-message: "chore(core): update pinned Discord client build number to ${{ steps.check.outputs.client_build_number }}"
+          title: "chore(core): update pinned Discord client build number to ${{ steps.check.outputs.client_build_number }}"
+          body: |
+            Automated refresh of `crates/tcord-engine/client-identity.json`.
+
+            | Field | Old | New |
+            | --- | --- | --- |
+            | `client_build_number` | `${{ steps.check.outputs.previous_client_build_number }}` | `${{ steps.check.outputs.client_build_number }}` |
+            | `chrome_version` | `${{ steps.check.outputs.previous_chrome_version }}` | `${{ steps.check.outputs.chrome_version }}` |
+
+            Sources:
+            - Build number: JavaScript assets referenced by https://discord.com/login
+            - Chrome version: https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions
+          add-paths: crates/tcord-engine/client-identity.json
