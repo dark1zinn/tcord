@@ -31,6 +31,8 @@ pub struct Session {
     http: Arc<DiscordHttp>,
     gateway_config: GatewayConfig,
     gateway: Mutex<Option<Arc<GatewayHandle>>>,
+    /// Last ack token Discord returned, with the user it belongs to.
+    ack_token: Mutex<Option<(String, Option<String>)>>,
     closed: CancellationToken,
 }
 
@@ -59,6 +61,7 @@ impl Session {
             http,
             gateway_config,
             gateway: Mutex::new(None),
+            ack_token: Mutex::new(None),
             closed: CancellationToken::new(),
         })
     }
@@ -197,6 +200,8 @@ impl Session {
         Ok(messages)
     }
 
+    /// Send a text message. A missing `nonce` is generated; `enforce_nonce` makes a retry with
+    /// the same nonce idempotent.
     pub async fn send_message(
         &self,
         channel_id: &str,
@@ -204,20 +209,22 @@ impl Session {
         reply_to: Option<MessageReference>,
         nonce: Option<String>,
     ) -> Result<Message> {
-        if content.trim().is_empty() {
-            return Err(EngineError::InvalidInput(
-                "message content must not be empty".into(),
-            ));
-        }
-        let mut body = json!({"content": content});
-        if let Some(nonce) = nonce {
-            body["nonce"] = json!(nonce);
-        }
+        validate_content(content)?;
+        let mut body = json!({
+            "content": content,
+            "nonce": nonce.unwrap_or_else(generate_nonce),
+            "enforce_nonce": true,
+            "allowed_mentions": {
+                "parse": ["users", "roles", "everyone"],
+                "replied_user": true,
+            },
+        });
         if let Some(reference) = reply_to {
             body["message_reference"] = json!({
                 "message_id": reference.message_id,
                 "channel_id": reference.channel_id,
                 "guild_id": reference.guild_id,
+                "fail_if_not_exists": false,
             });
         }
         let value = self
@@ -230,6 +237,100 @@ impl Session {
             .await?;
         Message::from_value(&value)
     }
+
+    pub async fn edit_message(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        content: &str,
+    ) -> Result<Message> {
+        validate_content(content)?;
+        let value = self
+            .call(
+                Method::PATCH,
+                &format!("/channels/{channel_id}/messages/{message_id}"),
+                &[],
+                Some(&json!({"content": content})),
+            )
+            .await?;
+        Message::from_value(&value)
+    }
+
+    pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
+        self.call(
+            Method::DELETE,
+            &format!("/channels/{channel_id}/messages/{message_id}"),
+            &[],
+            None,
+        )
+        .await
+        .map(drop)
+    }
+
+    pub async fn trigger_typing(&self, channel_id: &str) -> Result<()> {
+        self.call(
+            Method::POST,
+            &format!("/channels/{channel_id}/typing"),
+            &[],
+            None,
+        )
+        .await
+        .map(drop)
+    }
+
+    /// Mark `message_id` as the last read message of the channel.
+    pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
+        let user = self.auth.snapshot().user.map(|user| user.id);
+        let previous = {
+            let ack = self.ack_token.lock().expect("ack token poisoned");
+            match &*ack {
+                Some((owner, token)) if Some(owner) == user.as_ref() => token.clone(),
+                _ => None,
+            }
+        };
+        let value = self
+            .call(
+                Method::POST,
+                &format!("/channels/{channel_id}/messages/{message_id}/ack"),
+                &[],
+                Some(&json!({"token": previous})),
+            )
+            .await?;
+        if let Some(user) = user {
+            let token = value
+                .get("token")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            *self.ack_token.lock().expect("ack token poisoned") = Some((user, token));
+        }
+        Ok(())
+    }
+}
+
+/// Discord's message length limit.
+pub const MAX_MESSAGE_CHARS: usize = 2000;
+
+fn validate_content(content: &str) -> Result<()> {
+    if content.trim().is_empty() {
+        return Err(EngineError::InvalidInput(
+            "message content must not be empty".into(),
+        ));
+    }
+    if content.chars().count() > MAX_MESSAGE_CHARS {
+        return Err(EngineError::InvalidInput(format!(
+            "message content exceeds {MAX_MESSAGE_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// A snowflake-shaped nonce for the current time.
+pub fn generate_nonce() -> String {
+    let unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    (unix_ms.saturating_sub(1_420_070_400_000) << 22).to_string()
 }
 
 impl Drop for Session {

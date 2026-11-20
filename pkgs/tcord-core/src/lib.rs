@@ -677,6 +677,60 @@ impl Session {
             Ok(Message::from(message))
         })
     }
+
+    fn edit_message<'py>(
+        &self,
+        py: Python<'py>,
+        channel_id: String,
+        message_id: String,
+        content: String,
+    ) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let message = inner
+                .edit_message(&channel_id, &message_id, &content)
+                .await
+                .map_err(EngineErr)?;
+            Ok(Message::from(message))
+        })
+    }
+
+    fn delete_message<'py>(
+        &self,
+        py: Python<'py>,
+        channel_id: String,
+        message_id: String,
+    ) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            Ok(inner
+                .delete_message(&channel_id, &message_id)
+                .await
+                .map_err(EngineErr)?)
+        })
+    }
+
+    fn trigger_typing<'py>(&self, py: Python<'py>, channel_id: String) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            Ok(inner.trigger_typing(&channel_id).await.map_err(EngineErr)?)
+        })
+    }
+
+    fn ack_message<'py>(
+        &self,
+        py: Python<'py>,
+        channel_id: String,
+        message_id: String,
+    ) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            Ok(inner
+                .ack_message(&channel_id, &message_id)
+                .await
+                .map_err(EngineErr)?)
+        })
+    }
 }
 
 #[pymodule]

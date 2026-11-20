@@ -30,3 +30,15 @@ class Messages(MessagesProtocol):
         )
         sent = await self._engine.send_message(channel_id, content, reference, nonce)
         return convert.message(sent)
+
+    async def edit(self, channel_id: str, message_id: str, content: str) -> MessageInfo:
+        return convert.message(await self._engine.edit_message(channel_id, message_id, content))
+
+    async def delete(self, channel_id: str, message_id: str) -> None:
+        await self._engine.delete_message(channel_id, message_id)
+
+    async def trigger_typing(self, channel_id: str) -> None:
+        await self._engine.trigger_typing(channel_id)
+
+    async def ack(self, channel_id: str, message_id: str) -> None:
+        await self._engine.ack_message(channel_id, message_id)

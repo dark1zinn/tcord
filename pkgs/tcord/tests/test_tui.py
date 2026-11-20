@@ -78,6 +78,18 @@ class Messages:
     async def send(self, channel_id: str, content: str, **_: object) -> MessageInfo:
         raise AssertionError("no active channel")
 
+    async def edit(self, channel_id: str, message_id: str, content: str) -> MessageInfo:
+        raise AssertionError("not used")
+
+    async def delete(self, channel_id: str, message_id: str) -> None:
+        pass
+
+    async def trigger_typing(self, channel_id: str) -> None:
+        pass
+
+    async def ack(self, channel_id: str, message_id: str) -> None:
+        pass
+
 
 class Client:
     auth = Auth()
