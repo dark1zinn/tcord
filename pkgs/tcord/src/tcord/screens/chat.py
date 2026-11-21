@@ -14,6 +14,7 @@ from client.state import (
     ChannelsChanged,
     ConnectionStatusChanged,
     GuildsChanged,
+    MembersChanged,
     MessagesChanged,
     StoreChange,
     TypingChanged,
@@ -21,7 +22,7 @@ from client.state import (
 )
 from textual import events, work
 from textual.app import ComposeResult
-from textual.color import Color
+from textual.color import Color, ColorParseError
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.timer import Timer
@@ -53,6 +54,14 @@ def new_nonce() -> str:
     """Snowflake-shaped nonce; the low bits keep nonces unique within one millisecond."""
     base = int(time_snowflake(datetime.now(UTC)))
     return str(base | (next(_nonce_counter) & 0x3FFFFF))
+
+
+def _rgb(value: str | None, fallback: str) -> tuple[int, int, int]:
+    """A theme colour as an RGB triple (theme variables may be unset)."""
+    try:
+        return Color.parse(value or fallback).rgb
+    except ColorParseError:
+        return Color.parse(fallback).rgb
 
 
 class ChatScreen(Screen):
@@ -106,10 +115,26 @@ class ChatScreen(Screen):
         self.show_rail = settings.layout.show_server_rail
         self.show_sidebar = settings.layout.show_channel_list
         self.query_one("#sidebar").styles.width = settings.layout.channel_list_width
+        self._configure_rail()
         self._apply_layout()
         self._update_mode()
         if self.active_channel is not None:
             self._show_history()
+
+    def _configure_rail(self) -> None:
+        theme = self.app.current_theme
+        rail = self.query_one(ServerRail)
+        rail.configure(
+            self.tcord.store,
+            self.tcord.images,
+            ascii_only=self.tcord.settings.appearance.ascii_only,
+            panel=_rgb(theme.panel, "#1e1f22"),
+            accent=theme.primary,
+            error=theme.error or "#f23f43",
+            tile=theme.surface or "#2b2d31",
+        )
+        if self.is_mounted:
+            rail.rebuild(self.active_guild)
 
     def _apply_layout(self) -> None:
         self.set_class(not self.show_rail, "-hide-rail")
@@ -118,10 +143,9 @@ class ChatScreen(Screen):
     def reload(self) -> None:
         """Rebuild everything from the store (initial READY and re-identify)."""
         store = self.tcord.store
-        ascii_only = self.tcord.settings.appearance.ascii_only
         if self.active_guild is not None and self.active_guild not in store.guilds:
             self.active_guild = None
-        self.query_one(ServerRail).rebuild(store, self.active_guild, ascii_only)
+        self.query_one(ServerRail).rebuild(self.active_guild)
         self._show_channels()
         me = store.me
         self.query_one("#user-panel", Static).update(me.display_name if me else "")
@@ -144,14 +168,12 @@ class ChatScreen(Screen):
     # ----- store changes ---------------------------------------------------------------------
 
     def apply_changes(self, changes: list[StoreChange]) -> None:
-        store = self.tcord.store
-        ascii_only = self.tcord.settings.appearance.ascii_only
         rail = self.query_one(ServerRail)
         active_messages: list[MessagesChanged] = []
         for change in changes:
             match change:
                 case GuildsChanged():
-                    rail.rebuild(store, self.active_guild, ascii_only)
+                    rail.rebuild(self.active_guild)
                 case ChannelsChanged(guild_id):
                     if guild_id == self.active_guild or guild_id is None:
                         self._show_channels()
@@ -160,12 +182,15 @@ class ChatScreen(Screen):
                         active_messages.append(change)
                 case UnreadChanged(channel_ids):
                     self.query_one(ChannelTree).refresh_badges(channel_ids)
-                    rail.refresh_badges(store, ascii_only)
+                    rail.refresh_badges()
                 case TypingChanged(channel_id):
                     if channel_id == self.active_channel:
                         self._refresh_typing()
                 case ConnectionStatusChanged(status, retry_in):
                     self.query_one(StatusBar).connection = connection_text(status, retry_in)
+                case MembersChanged(guild_id):
+                    if self.active_channel is not None and guild_id == self.active_guild:
+                        self._show_history(keep_position=True)
         if active_messages:
             self._messages_changed(active_messages)
 
@@ -201,10 +226,13 @@ class ChatScreen(Screen):
         if guild_id is not None and guild_id not in self._subscribed:
             self._subscribed.add(guild_id)
             self.tcord.client.gateway.subscribe_guild(guild_id)
-        rail = self.query_one(ServerRail)
-        rail.highlighted = rail.index_of(guild_id)
+        self.query_one(ServerRail).set_active(guild_id)
         self._show_channels()
         self.query_one(ChannelTree).focus()
+
+    def images_ready(self, urls: set[str]) -> None:
+        """Redraw whatever shows one of the freshly loaded images."""
+        self.query_one(ServerRail).images_ready(urls)
 
     def open_channel(self, channel_id: str) -> None:
         store = self.tcord.store
