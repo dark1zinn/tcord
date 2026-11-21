@@ -779,6 +779,8 @@ class ChatScreen(Screen):
             self.choose_guild(focused.guild_at(focused.highlighted))
         elif isinstance(focused, ChannelTree):
             focused.action_select_cursor()
+        elif isinstance(focused, MessageList):
+            focused.action_select()  # opens the thread a message started
 
     def _step_guild(self, step: int) -> None:
         rail = self.query_one(ServerRail)

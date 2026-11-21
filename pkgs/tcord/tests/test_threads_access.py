@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 from client.models import Channel, ChannelKind, Member, PermissionOverwrite, Role, ThreadUpserted
 from conftest import settle, wait_until
 from fakes import GENERAL, GUILD_ID, ME, RANDOM, FakeClient, make_message
 from tcord.app import TcordApp
 from tcord.screens.chat import ChatScreen
-from tcord.settings import LayoutSettings, Settings
+from tcord.settings import LayoutSettings, NavigationSettings, Settings
 from tcord.widgets.channels import ChannelTree
 from tcord.widgets.messages import MessageList
 from textual.pilot import Pilot
@@ -154,12 +155,13 @@ async def test_failed_forum_load_retries_on_next_expand() -> None:
         assert client.gateway.thread_calls == [(FORUM, 0), (FORUM, 0)]
 
 
-async def test_enter_on_thread_starter_opens_the_thread() -> None:
+@pytest.mark.parametrize(("preset", "key"), [("standard", "enter"), ("vim", "l")])
+async def test_opening_a_thread_starter_switches_to_the_thread(preset: str, key: str) -> None:
     client = FakeClient()
     started = replace(make_message(31), thread=thread(THREAD, GENERAL, "side-topic"))
     client.messages.histories[GENERAL].append(started)
     client.messages.histories[THREAD] = [make_message(1, THREAD)]
-    app = TcordApp(client)
+    app = TcordApp(client, Settings(navigation=NavigationSettings(preset=preset)))
     async with app.run_test(size=(120, 36)) as pilot:
         chat, _ = await guild_tree(app, pilot)
         chat.open_channel(GENERAL)
@@ -167,5 +169,5 @@ async def test_enter_on_thread_starter_opens_the_thread() -> None:
         await wait_until(pilot, lambda: len(messages.messages) == 31)
         messages.focus()
         messages.highlighted = messages.get_option_index(f"m{started.id}")
-        await pilot.press("enter")
+        await pilot.press(key)
         await wait_until(pilot, lambda: chat.active_channel == THREAD)
