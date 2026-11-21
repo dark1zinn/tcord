@@ -5,6 +5,7 @@ import pytest
 from client.models import (
     Channel,
     ChannelKind,
+    ChannelUpserted,
     Guild,
     GuildUpserted,
     Member,
@@ -27,7 +28,7 @@ from client.permissions import (
     VIEW_CHANNEL,
     channel_permissions,
 )
-from client.state import ChatStore, MembersChanged
+from client.state import ChannelsChanged, ChatStore, MembersChanged
 
 ME = "1"
 GUILD = "100"
@@ -127,6 +128,28 @@ def test_store_visibility_threads_follow_parent() -> None:
     assert not chat.can_view("30")
     assert chat.can_view("11")
     assert chat.can_view("unknown")
+
+
+def test_own_role_change_reveals_channels_and_rebuilds_the_tree() -> None:
+    secret = text("10", overwrite(GUILD, deny=VIEW_CHANNEL), overwrite(VIP, allow=VIEW_CHANNEL))
+    thread = Channel("30", ChannelKind.PUBLIC_THREAD, "t", GUILD, parent_id="10")
+    chat = store_with(secret, threads=(thread,))
+    assert not chat.can_view("30")
+    changes = chat.apply(MembersLoaded(GUILD, (Member(ME, roles=(MODS, VIP)),)))
+    assert ChannelsChanged(GUILD) in changes
+    assert chat.can_view("10")
+    assert chat.can_view("30")
+    # Someone else's roles do not touch the channel list.
+    other = chat.apply(MembersLoaded(GUILD, (Member("2", roles=(VIP,)),)))
+    assert ChannelsChanged(GUILD) not in other
+
+
+def test_parent_overwrite_change_updates_thread_access() -> None:
+    thread = Channel("30", ChannelKind.PUBLIC_THREAD, "t", GUILD, parent_id="10")
+    chat = store_with(text("10"), threads=(thread,))
+    assert chat.can_view("30")
+    chat.apply(ChannelUpserted(text("10", overwrite(GUILD, deny=VIEW_CHANNEL))))
+    assert not chat.can_view("30")
 
 
 def test_inaccessible_unread_does_not_badge_the_guild() -> None:

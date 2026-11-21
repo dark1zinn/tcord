@@ -193,15 +193,19 @@ class ChatStore:
             self.users.setdefault(user.id, user)
         if channel.is_private and channel.id not in self.private_channel_ids:
             self.private_channel_ids.append(channel.id)
-        self._permissions.pop(channel.id, None)
+        # Threads inherit their parent's permissions, so drop every cached decision.
+        self._permissions.clear()
 
-    def _remember_member(self, guild_id: str, member: Member) -> None:
+    def _remember_member(self, guild_id: str, member: Member) -> bool:
+        """Store ``member``; ``True`` when it changed the signed-in account's membership."""
         self.members.setdefault(guild_id, {})[member.user_id] = member
         if self.me is not None and member.user_id == self.me.id:
             guild = self.guilds.get(guild_id)
             if guild is not None and guild.me != member:
                 self.guilds[guild_id] = replace(guild, me=member)
                 self._permissions.clear()
+                return True
+        return False
 
     # ----- queries ---------------------------------------------------------------------------
 
@@ -467,8 +471,11 @@ class ChatStore:
                     self._put_channel(replace(thread, guild_id=thread.guild_id or guild_id))
                 return [ChannelsChanged(guild_id)]
             case MembersLoaded(guild_id, members):
+                own_changed = False
                 for member in members:
-                    self._remember_member(guild_id, member)
+                    own_changed |= self._remember_member(guild_id, member)
+                if own_changed:  # our roles decide which channels are visible
+                    return [ChannelsChanged(guild_id), MembersChanged(guild_id)]
                 return [MembersChanged(guild_id)]
             case RoleUpserted(guild_id, role):
                 return self._replace_roles(

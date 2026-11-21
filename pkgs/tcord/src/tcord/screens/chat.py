@@ -182,6 +182,7 @@ class ChatScreen(Screen):
                 case ChannelsChanged(guild_id):
                     if guild_id == self.active_guild or guild_id is None:
                         self._show_channels()
+                    rail.refresh_badges()  # visibility or unread state may have moved
                 case MessagesChanged(channel_id):
                     if channel_id == self.active_channel:
                         active_messages.append(change)
