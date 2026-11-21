@@ -41,5 +41,7 @@ def main(config: Path | None, debug: bool) -> None:
     session = Session(
         credential_store="system" if settings.general.remember_session else "memory",
         locale=i18n.engine_locale(),
+        # Avatars, emoji and attachments (at most 256 MB, oldest files evicted first).
+        cache_dir=platformdirs.user_cache_path("tcord") / "media",
     )
     TcordApp(TcordClient(session), settings, settings_file, warnings).run()
