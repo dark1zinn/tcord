@@ -17,6 +17,7 @@ from client.models import (
     Role,
     RoleUpserted,
     ThreadListSynced,
+    ThreadMembershipChanged,
     ThreadMetadata,
     ThreadUpserted,
     User,
@@ -202,6 +203,20 @@ def test_thread_tracking() -> None:
 
     chat.apply(ThreadListSynced(GUILD, ("10",), ()))
     assert [thread.id for thread in chat.thread_children("10")] == ["32"]
+
+
+def test_thread_membership_survives_updates_and_follows_membership_events() -> None:
+    chat = store_with(text("10"))
+    archived = ThreadMetadata(archived=True)
+    thread = Channel("30", ChannelKind.PUBLIC_THREAD, "a", GUILD, parent_id="10", joined=True)
+    chat.apply(ThreadUpserted(thread))
+    # THREAD_UPDATE payloads omit the membership: archiving keeps the joined thread listed.
+    chat.apply(ThreadUpserted(replace(thread, joined=False, thread_metadata=archived)))
+    assert [child.id for child in chat.thread_children("10")] == ["30"]
+    left = chat.apply(ThreadMembershipChanged("30", GUILD, joined=False))
+    assert left == [ChannelsChanged(GUILD)]
+    assert chat.thread_children("10") == []
+    assert chat.apply(ThreadMembershipChanged("30", GUILD, joined=False)) == []
 
 
 def test_partial_guild_update_keeps_channels() -> None:

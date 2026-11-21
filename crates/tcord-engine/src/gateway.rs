@@ -119,6 +119,12 @@ pub enum GatewayEvent {
         guild_id: Option<String>,
         parent_id: Option<String>,
     },
+    /// The signed-in user joined (`true`) or left (`false`) a thread.
+    ThreadMembership {
+        thread_id: String,
+        guild_id: Option<String>,
+        joined: bool,
+    },
     /// Replaces the known active threads of the listed parents (or the whole guild).
     ThreadListSync {
         guild_id: String,
@@ -193,6 +199,7 @@ impl GatewayHandle {
             cancel: cancel.clone(),
             ready: Some(ready_tx),
             session_id: None,
+            user_id: None,
             resume_url: None,
             seq: None,
             subscribed: HashSet::new(),
@@ -260,6 +267,8 @@ struct Runner {
     cancel: CancellationToken,
     ready: Option<oneshot::Sender<Result<Ready>>>,
     session_id: Option<String>,
+    /// The signed-in user, to pick our own entries out of membership updates.
+    user_id: Option<String>,
     resume_url: Option<String>,
     seq: Option<u64>,
     subscribed: HashSet<String>,
@@ -540,6 +549,7 @@ impl Runner {
                 let Ok(ready) = parse_ready(&value) else {
                     return Some(Outcome::Reidentify);
                 };
+                self.user_id = Some(ready.user.id.clone());
                 self.session_id = value
                     .get("session_id")
                     .and_then(Value::as_str)
@@ -693,12 +703,24 @@ impl Runner {
                             .filter_map(|id| id.as_str().map(str::to_owned))
                             .collect()
                     });
+                // `members` lists the signed-in user's thread memberships separately.
+                let joined: HashSet<&str> = value
+                    .get("members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|member| member.get("id").and_then(Value::as_str))
+                    .collect();
                 let threads = value
                     .get("threads")
                     .and_then(Value::as_array)
                     .into_iter()
                     .flatten()
                     .filter_map(|thread| Channel::from_value(thread, Some(&guild_id), &[]).ok())
+                    .map(|mut thread| {
+                        thread.joined |= joined.contains(thread.id.as_str());
+                        thread
+                    })
                     .collect();
                 self.emit(GatewayEvent::ThreadListSync {
                     guild_id,
@@ -706,6 +728,40 @@ impl Runner {
                     threads,
                 })
                 .await;
+            }
+            "THREAD_MEMBER_UPDATE" => {
+                // Always about the signed-in user (e.g. after joining or unarchiving).
+                let value = parse()?;
+                self.emit(GatewayEvent::ThreadMembership {
+                    thread_id: text(&value, "id")?,
+                    guild_id: text(&value, "guild_id"),
+                    joined: true,
+                })
+                .await;
+            }
+            "THREAD_MEMBERS_UPDATE" => {
+                let value = parse()?;
+                let me = self.user_id.as_deref()?;
+                let added = value
+                    .get("added_members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|member| member.get("user_id").and_then(Value::as_str) == Some(me));
+                let removed = value
+                    .get("removed_member_ids")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|id| id.as_str() == Some(me));
+                if added || removed {
+                    self.emit(GatewayEvent::ThreadMembership {
+                        thread_id: text(&value, "id")?,
+                        guild_id: text(&value, "guild_id"),
+                        joined: added,
+                    })
+                    .await;
+                }
             }
             "GUILD_MEMBER_ADD" | "GUILD_MEMBER_UPDATE" => {
                 let value = parse()?;

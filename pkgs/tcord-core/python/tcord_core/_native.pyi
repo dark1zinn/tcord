@@ -190,6 +190,7 @@ class GatewayEvent:
     members: list[Member] | None
     role: Role | None
     role_id: str | None
+    joined: bool | None
 
 @final
 class Session:

@@ -531,6 +531,7 @@ struct GatewayEvent {
     members: Option<Vec<Member>>,
     role: Option<Role>,
     role_id: Option<String>,
+    joined: Option<bool>,
 }
 
 impl From<tcord_engine::gateway::GatewayEvent> for GatewayEvent {
@@ -622,6 +623,16 @@ impl From<tcord_engine::gateway::GatewayEvent> for GatewayEvent {
                 guild_id,
                 parent_id,
                 ..kind("thread_delete")
+            },
+            Event::ThreadMembership {
+                thread_id,
+                guild_id,
+                joined,
+            } => Self {
+                channel_id: Some(thread_id),
+                guild_id,
+                joined: Some(joined),
+                ..kind("thread_membership")
             },
             Event::ThreadListSync {
                 guild_id,

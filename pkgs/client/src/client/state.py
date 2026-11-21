@@ -38,6 +38,7 @@ from .models import (
     SessionInvalidated,
     ThreadDeleted,
     ThreadListSynced,
+    ThreadMembershipChanged,
     ThreadUpserted,
     TypingStarted,
     User,
@@ -456,8 +457,18 @@ class ChatStore:
             case SessionInvalidated():
                 return [SessionEnded()]
             case ThreadUpserted(thread):
+                # Thread updates omit membership; it changes through ThreadMembershipChanged.
+                previous = self.channels.get(thread.id)
+                if previous is not None and previous.joined and not thread.joined:
+                    thread = replace(thread, joined=True)
                 self._put_channel(thread)
                 return [ChannelsChanged(thread.guild_id)]
+            case ThreadMembershipChanged(thread_id, guild_id, joined):
+                thread = self.channels.get(thread_id)
+                if thread is None or thread.joined == joined:
+                    return []
+                self.channels[thread_id] = replace(thread, joined=joined)
+                return [ChannelsChanged(guild_id or thread.guild_id)]
             case ThreadDeleted(thread_id, guild_id, _):
                 self.channels.pop(thread_id, None)
                 self.histories.pop(thread_id, None)

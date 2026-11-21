@@ -197,6 +197,35 @@ async fn serve(stream: TcpStream, connection: usize, script: Script, url: String
                         }}),
                     )
                     .await;
+                    peer.dispatch(
+                        5,
+                        "THREAD_LIST_SYNC",
+                        json!({"guild_id": "100", "threads": [
+                            {"id": "300", "type": 11, "parent_id": "101", "name": "a"},
+                            {"id": "301", "type": 11, "parent_id": "101", "name": "b"}
+                        ], "members": [{"id": "300", "user_id": "1"}]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        6,
+                        "THREAD_MEMBERS_UPDATE",
+                        json!({"id": "301", "guild_id": "100", "member_count": 2,
+                            "added_members": [{"user_id": "2"}]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        7,
+                        "THREAD_MEMBERS_UPDATE",
+                        json!({"id": "300", "guild_id": "100", "member_count": 1,
+                            "removed_member_ids": ["1"]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        8,
+                        "THREAD_MEMBER_UPDATE",
+                        json!({"id": "301", "guild_id": "100", "user_id": "1", "flags": 0}),
+                    )
+                    .await;
                 }
             }
         }
@@ -418,6 +447,26 @@ async fn threads_members_and_roles_are_dispatched() {
                 (255, 3, 1024)
             );
         }
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadListSync { threads, .. }) => {
+            let joined: Vec<_> = threads.iter().map(|t| (t.id.as_str(), t.joined)).collect();
+            assert_eq!(joined, [("300", true), ("301", false)]);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    // Someone else's membership change is not reported; ours is.
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadMembership {
+            thread_id, joined, ..
+        }) => assert_eq!((thread_id.as_str(), joined), ("300", false)),
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadMembership {
+            thread_id, joined, ..
+        }) => assert_eq!((thread_id.as_str(), joined), ("301", true)),
         other => panic!("unexpected {other:?}"),
     }
     let log = log.lock().unwrap();

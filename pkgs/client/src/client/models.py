@@ -387,6 +387,15 @@ class ThreadDeleted:
 
 
 @dataclass(frozen=True, slots=True)
+class ThreadMembershipChanged:
+    """The signed-in user joined or left ``thread_id``."""
+
+    thread_id: str
+    guild_id: str | None
+    joined: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ThreadListSynced:
     """Active threads of ``channel_ids`` (or the whole guild when ``None``) are replaced."""
 
@@ -434,6 +443,7 @@ type GatewayEvent = (
     | SessionInvalidated
     | ThreadUpserted
     | ThreadDeleted
+    | ThreadMembershipChanged
     | ThreadListSynced
     | MembersLoaded
     | RoleUpserted

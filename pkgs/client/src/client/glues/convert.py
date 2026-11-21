@@ -38,6 +38,7 @@ from ..models import (
     Sticker,
     ThreadDeleted,
     ThreadListSynced,
+    ThreadMembershipChanged,
     ThreadMetadata,
     ThreadPage,
     ThreadUpserted,
@@ -247,6 +248,8 @@ def event(native: tcord_core.GatewayEvent) -> GatewayEvent | None:
             return ThreadUpserted(channel(native.channel))
         case "thread_delete" if native.channel_id:
             return ThreadDeleted(native.channel_id, native.guild_id, native.parent_id)
+        case "thread_membership" if native.channel_id and native.joined is not None:
+            return ThreadMembershipChanged(native.channel_id, native.guild_id, native.joined)
         case "thread_list_sync" if native.guild_id and native.threads is not None:
             ids = tuple(native.channel_ids) if native.channel_ids is not None else None
             return ThreadListSynced(
