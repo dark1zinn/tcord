@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from client.errors import CaptchaRequiredError, NetworkError
+from client.errors import CaptchaRequiredError, NetworkError, NotFoundError
 from client.models import (
     AuthFailure,
     AuthKind,
@@ -23,6 +23,7 @@ from client.models import (
     QrUser,
     ReadState,
     ReadySnapshot,
+    ThreadPage,
     User,
 )
 
@@ -194,6 +195,9 @@ class FakeGateway:
     def __init__(self) -> None:
         self.events: asyncio.Queue[GatewayEvent | None] = asyncio.Queue()
         self.subscribed: list[str] = []
+        self.member_requests: list[tuple[str, tuple[str, ...]]] = []
+        self.thread_calls: list[str] = []
+        self.thread_pages: dict[str, list[Channel]] = {}
         self.connects = 0
         self.snapshot = snapshot()
 
@@ -225,6 +229,29 @@ class FakeGateway:
 
     async def private_channels(self) -> list[Channel]:
         return list(self.snapshot.private_channels)
+
+    def request_members(self, guild_id: str, user_ids: list[str]) -> None:
+        self.member_requests.append((guild_id, tuple(user_ids)))
+
+    async def threads(
+        self, channel_id: str, *, archived: bool = False, offset: int = 0
+    ) -> ThreadPage:
+        self.thread_calls.append(channel_id)
+        return ThreadPage(tuple(self.thread_pages.get(channel_id, ())), has_more=False)
+
+
+class FakeMedia:
+    """Serves registered URLs; anything else is missing (like an expired CDN link)."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.requests: list[str] = []
+
+    async def fetch(self, url: str) -> bytes:
+        self.requests.append(url)
+        if url not in self.files:
+            raise NotFoundError("missing media")
+        return self.files[url]
 
 
 class FakeMessages:
@@ -287,6 +314,7 @@ class FakeClient:
         self.auth = FakeAuth(stored_session=stored_session, mfa=mfa)
         self.gateway = FakeGateway()
         self.messages = FakeMessages()
+        self.media = FakeMedia()
         self.auth.on_logout.append(self.gateway.stop)
         self.closed = False
 

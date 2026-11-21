@@ -12,22 +12,35 @@ from ..models import (
     ChannelUpserted,
     ConnectionChanged,
     ConnectionStatus,
+    Embed,
+    EmbedMedia,
     GatewayEvent,
     Guild,
     GuildRemoved,
     GuildUpserted,
+    Member,
+    MembersLoaded,
     MessageAcked,
     MessageCreated,
     MessageDeleted,
     MessageInfo,
     MessageUpdated,
     MfaMethod,
+    PermissionOverwrite,
     QrUser,
     ReadState,
     Ready,
     ReadySnapshot,
     Role,
+    RoleDeleted,
+    RoleUpserted,
     SessionInvalidated,
+    Sticker,
+    ThreadDeleted,
+    ThreadListSynced,
+    ThreadMetadata,
+    ThreadPage,
+    ThreadUpserted,
     TypingStarted,
     User,
 )
@@ -39,6 +52,26 @@ def user(native: tcord_core.User) -> User:
         username=native.username,
         global_name=native.global_name,
         bot=native.bot,
+        avatar=native.avatar,
+    )
+
+
+def role(native: tcord_core.Role) -> Role:
+    return Role(
+        id=native.id,
+        name=native.name,
+        color=native.color,
+        position=native.position,
+        permissions=native.permissions,
+    )
+
+
+def member(native: tcord_core.Member) -> Member:
+    return Member(
+        user_id=native.user_id,
+        nick=native.nick,
+        avatar=native.avatar,
+        roles=tuple(native.roles),
     )
 
 
@@ -68,6 +101,7 @@ def auth_state(native: tcord_core.AuthState) -> AuthState:
 
 
 def channel(native: tcord_core.Channel) -> Channel:
+    meta = native.thread_metadata
     return Channel(
         id=native.id,
         kind=native.kind,
@@ -78,6 +112,18 @@ def channel(native: tcord_core.Channel) -> Channel:
         last_message_id=native.last_message_id,
         topic=native.topic,
         recipients=tuple(user(recipient) for recipient in native.recipients),
+        permission_overwrites=tuple(
+            PermissionOverwrite(item.id, item.kind, item.allow, item.deny)
+            for item in native.permission_overwrites
+        ),
+        owner_id=native.owner_id,
+        thread_metadata=(
+            ThreadMetadata(meta.archived, meta.locked, meta.archive_timestamp)
+            if meta is not None
+            else None
+        ),
+        message_count=native.message_count,
+        joined=native.joined,
     )
 
 
@@ -87,9 +133,18 @@ def guild(native: tcord_core.Guild) -> Guild:
         name=native.name,
         icon=native.icon,
         channels=tuple(channel(item) for item in native.channels),
-        roles=tuple(Role(id=role.id, name=role.name, color=role.color) for role in native.roles),
+        roles=tuple(role(item) for item in native.roles),
         unavailable=native.unavailable,
+        owner_id=native.owner_id,
+        threads=tuple(channel(item) for item in native.threads),
+        me=member(native.me) if native.me is not None else None,
     )
+
+
+def _media(native: tcord_core.EmbedMedia | None) -> EmbedMedia | None:
+    if native is None:
+        return None
+    return EmbedMedia(native.url, native.proxy_url, native.width, native.height)
 
 
 def message(native: tcord_core.Message) -> MessageInfo:
@@ -99,7 +154,7 @@ def message(native: tcord_core.Message) -> MessageInfo:
         channel_id=native.channel_id,
         guild_id=native.guild_id,
         author=user(native.author),
-        author_nick=native.author_nick,
+        member=member(native.member) if native.member is not None else None,
         content=native.content,
         timestamp=native.timestamp,
         edited_timestamp=native.edited_timestamp,
@@ -108,13 +163,38 @@ def message(native: tcord_core.Message) -> MessageInfo:
         mention_role_ids=tuple(native.mention_role_ids),
         mention_everyone=native.mention_everyone,
         attachments=tuple(
-            Attachment(filename=item.filename, url=item.url, size=item.size)
+            Attachment(
+                filename=item.filename,
+                url=item.url,
+                size=item.size,
+                proxy_url=item.proxy_url,
+                content_type=item.content_type,
+                width=item.width,
+                height=item.height,
+            )
             for item in native.attachments
         ),
-        embed_titles=tuple(native.embed_titles),
+        embeds=tuple(
+            Embed(
+                kind=item.kind,
+                title=item.title,
+                description=item.description,
+                url=item.url,
+                image=_media(item.image),
+                thumbnail=_media(item.thumbnail),
+                video=_media(item.video),
+            )
+            for item in native.embeds
+        ),
+        stickers=tuple(Sticker(item.id, item.name, item.format) for item in native.stickers),
         referenced=message(referenced) if referenced is not None else None,
+        thread=channel(native.thread) if native.thread is not None else None,
         nonce=native.nonce,
     )
+
+
+def thread_page(native: tcord_core.ThreadPage) -> ThreadPage:
+    return ThreadPage(tuple(channel(item) for item in native.threads), native.has_more)
 
 
 def ready(native: tcord_core.Ready) -> ReadySnapshot:
@@ -163,4 +243,19 @@ def event(native: tcord_core.GatewayEvent) -> GatewayEvent | None:
             return ConnectionChanged(ConnectionStatus(native.status), native.retry_in)
         case "session_invalidated":
             return SessionInvalidated()
+        case "thread_upsert" if native.channel is not None:
+            return ThreadUpserted(channel(native.channel))
+        case "thread_delete" if native.channel_id:
+            return ThreadDeleted(native.channel_id, native.guild_id, native.parent_id)
+        case "thread_list_sync" if native.guild_id and native.threads is not None:
+            ids = tuple(native.channel_ids) if native.channel_ids is not None else None
+            return ThreadListSynced(
+                native.guild_id, ids, tuple(channel(item) for item in native.threads)
+            )
+        case "members" if native.guild_id and native.members is not None:
+            return MembersLoaded(native.guild_id, tuple(member(item) for item in native.members))
+        case "role_upsert" if native.guild_id and native.role is not None:
+            return RoleUpserted(native.guild_id, role(native.role))
+        case "role_delete" if native.guild_id and native.role_id:
+            return RoleDeleted(native.guild_id, native.role_id)
     return None

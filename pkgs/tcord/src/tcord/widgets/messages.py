@@ -195,8 +195,9 @@ class MessageList(OptionList):
             link = f"underline link {attachment.url}" if attachment.url else ""
             text.append(attachment.filename, style=link)
             text.append(f" ({human_size(attachment.size)})", style="dim")
-        for title in message.embed_titles:
-            text.append(f"\n{glyphs.embed}{title}", style="italic")
+        for embed in message.embeds:
+            if embed.title:
+                text.append(f"\n{glyphs.embed}{embed.title}", style="italic")
         if message.failed:
             text.stylize("red")
             text.append("\n" + _("(failed — press R to retry)"), style="bold red")

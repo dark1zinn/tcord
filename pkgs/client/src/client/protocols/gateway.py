@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from ..models import Channel, GatewayEvent, Guild, ReadySnapshot
+from ..models import Channel, GatewayEvent, Guild, ReadySnapshot, ThreadPage
 
 
 class GatewayProtocol(Protocol):
@@ -11,6 +11,16 @@ class GatewayProtocol(Protocol):
     def subscribe_guild(self, guild_id: str) -> None: ...
 
     def disconnect(self) -> None: ...
+
+    def request_members(self, guild_id: str, user_ids: list[str]) -> None:
+        """Ask for guild members; they arrive as ``MembersLoaded`` events."""
+        ...
+
+    async def threads(
+        self, channel_id: str, *, archived: bool = False, offset: int = 0
+    ) -> ThreadPage:
+        """Threads (or forum posts) of a channel, most recently active first."""
+        ...
 
     async def guilds(self) -> list[Guild]: ...
 

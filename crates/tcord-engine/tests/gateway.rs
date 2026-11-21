@@ -23,6 +23,7 @@ enum Script {
     DropThenResume,
     InvalidSession,
     AuthFailed,
+    ThreadsMembersRoles,
 }
 
 #[derive(Default)]
@@ -163,6 +164,40 @@ async fn serve(stream: TcpStream, connection: usize, script: Script, url: String
                     peer.send(json!({"op": 9, "d": false})).await;
                 }
                 Script::AuthFailed => peer.close(4004).await,
+                Script::ThreadsMembersRoles => {
+                    peer.dispatch(
+                        2,
+                        "THREAD_CREATE",
+                        json!({
+                            "id": "300", "type": 11, "guild_id": "100", "parent_id": "101",
+                            "name": "topic", "owner_id": "2", "message_count": 3,
+                            "thread_metadata": {"archived": false, "locked": true}
+                        }),
+                    )
+                    .await;
+                    let request = peer.expect(8).await;
+                    let members: Vec<Value> = request["user_ids"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| json!({"user": {"id": id}, "roles": ["7"], "nick": "Nick"}))
+                        .collect();
+                    peer.dispatch(
+                        3,
+                        "GUILD_MEMBERS_CHUNK",
+                        json!({"guild_id": "100", "members": members}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        4,
+                        "GUILD_ROLE_UPDATE",
+                        json!({"guild_id": "100", "role": {
+                            "id": "7", "name": "Mods", "position": 3,
+                            "permissions": "1024", "colors": {"primary_color": 255}
+                        }}),
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -349,4 +384,72 @@ fn legacy_ready_shape_parses_identically() {
     assert_eq!(modern.guilds, legacy.guilds);
     assert_eq!(modern.private_channels, legacy.private_channels);
     assert_eq!(modern.read_states, legacy.read_states);
+}
+
+#[tokio::test]
+async fn threads_members_and_roles_are_dispatched() {
+    let (url, log) = fake_gateway(Script::ThreadsMembersRoles).await;
+    let (_api, session) = session(url).await;
+    session.connect_gateway().await.unwrap();
+
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadUpsert(thread)) => {
+            assert_eq!(thread.parent_id.as_deref(), Some("101"));
+            assert_eq!(thread.message_count, Some(3));
+            assert!(thread.thread_metadata.unwrap().locked);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    session.request_members("100".into(), vec!["2".into(), "3".into()]);
+    match next_non_status(&session).await {
+        Some(GatewayEvent::Members { guild_id, members }) => {
+            assert_eq!(guild_id, "100");
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id, "2");
+            assert_eq!(members[0].roles, ["7"]);
+            assert_eq!(members[0].nick.as_deref(), Some("Nick"));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::RoleUpsert { role, .. }) => {
+            assert_eq!(
+                (role.color, role.position, role.permissions),
+                (255, 3, 1024)
+            );
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    let log = log.lock().unwrap();
+    let request = &log.payloads.iter().find(|(_, p)| p["op"] == 8).unwrap().1["d"];
+    assert_eq!(request["guild_id"], json!(["100"]));
+    assert_eq!(request["presences"], false);
+}
+
+#[test]
+fn ready_reads_own_member_permissions_and_threads() {
+    let ready = parse_ready(&json!({
+        "user": {"id": "1", "username": "me", "avatar": "abc"},
+        "guilds": [{
+            "id": "100",
+            "properties": {"name": "Guild", "owner_id": "9"},
+            "roles": [{"id": "100", "name": "@everyone", "permissions": "1024", "position": 0}],
+            "channels": [{
+                "id": "101", "type": 0, "name": "secret",
+                "permission_overwrites": [{"id": "100", "type": 0, "allow": "0", "deny": "1024"}]
+            }],
+            "threads": [{"id": "300", "type": 11, "parent_id": "101", "member": {}}]
+        }],
+        "merged_members": [[{"user_id": "1", "roles": ["5"], "nick": "Me!"}]],
+        "private_channels": []
+    }))
+    .unwrap();
+    let guild = &ready.guilds[0];
+    assert_eq!(ready.user.avatar.as_deref(), Some("abc"));
+    assert_eq!(guild.owner_id.as_deref(), Some("9"));
+    assert_eq!(guild.me.as_ref().unwrap().roles, ["5"]);
+    assert_eq!(guild.roles[0].permissions, 1024);
+    let overwrite = &guild.channels[0].permission_overwrites[0];
+    assert_eq!((overwrite.kind, overwrite.deny), (0, 1024));
+    assert!(guild.threads[0].joined);
 }

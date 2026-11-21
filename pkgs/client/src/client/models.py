@@ -13,6 +13,7 @@ class User:
     username: str
     global_name: str | None = None
     bot: bool = False
+    avatar: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -24,6 +25,8 @@ class Role:
     id: str
     name: str
     color: int
+    position: int = 0
+    permissions: int = 0
 
 
 class ChannelKind(IntEnum):
@@ -41,7 +44,35 @@ class ChannelKind(IntEnum):
     MEDIA = 16
 
 
-_READABLE = {ChannelKind.TEXT, ChannelKind.ANNOUNCEMENT, ChannelKind.DM, ChannelKind.GROUP_DM}
+_THREADS = {
+    ChannelKind.ANNOUNCEMENT_THREAD,
+    ChannelKind.PUBLIC_THREAD,
+    ChannelKind.PRIVATE_THREAD,
+}
+_READABLE = {
+    ChannelKind.TEXT,
+    ChannelKind.ANNOUNCEMENT,
+    ChannelKind.DM,
+    ChannelKind.GROUP_DM,
+    *_THREADS,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionOverwrite:
+    """``kind`` 0 = role, 1 = member."""
+
+    id: str
+    kind: int
+    allow: int
+    deny: int
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadMetadata:
+    archived: bool = False
+    locked: bool = False
+    archive_timestamp: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +86,11 @@ class Channel:
     last_message_id: str | None = None
     topic: str | None = None
     recipients: tuple[User, ...] = ()
+    permission_overwrites: tuple[PermissionOverwrite, ...] = ()
+    owner_id: str | None = None
+    thread_metadata: ThreadMetadata | None = None
+    message_count: int | None = None
+    joined: bool = False
 
     @property
     def is_readable(self) -> bool:
@@ -72,6 +108,27 @@ class Channel:
     def is_private(self) -> bool:
         return self.kind in {ChannelKind.DM, ChannelKind.GROUP_DM}
 
+    @property
+    def is_thread(self) -> bool:
+        return self.kind in _THREADS
+
+    @property
+    def is_forum(self) -> bool:
+        """Forum and media channels only contain threads (posts)."""
+        return self.kind in {ChannelKind.FORUM, ChannelKind.MEDIA}
+
+    @property
+    def is_archived(self) -> bool:
+        return self.thread_metadata is not None and self.thread_metadata.archived
+
+
+@dataclass(frozen=True, slots=True)
+class Member:
+    user_id: str
+    nick: str | None = None
+    avatar: str | None = None
+    roles: tuple[str, ...] = ()
+
 
 @dataclass(frozen=True, slots=True)
 class Guild:
@@ -81,6 +138,9 @@ class Guild:
     channels: tuple[Channel, ...] = ()
     roles: tuple[Role, ...] = ()
     unavailable: bool = False
+    owner_id: str | None = None
+    threads: tuple[Channel, ...] = ()
+    me: Member | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +148,47 @@ class Attachment:
     filename: str
     url: str
     size: int
+    proxy_url: str | None = None
+    content_type: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+    @property
+    def is_image(self) -> bool:
+        return (self.content_type or "").startswith("image/") and self.width is not None
+
+
+@dataclass(frozen=True, slots=True)
+class EmbedMedia:
+    url: str
+    proxy_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Embed:
+    kind: str = "rich"
+    title: str | None = None
+    description: str | None = None
+    url: str | None = None
+    image: EmbedMedia | None = None
+    thumbnail: EmbedMedia | None = None
+    video: EmbedMedia | None = None
+
+
+class StickerFormat(IntEnum):
+    PNG = 1
+    APNG = 2
+    LOTTIE = 3
+    GIF = 4
+
+
+@dataclass(frozen=True, slots=True)
+class Sticker:
+    id: str
+    name: str
+    format: int = StickerFormat.PNG
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,22 +206,25 @@ class MessageInfo:
     content: str
     timestamp: datetime
     guild_id: str | None = None
-    author_nick: str | None = None
+    member: Member | None = None
     edited_timestamp: datetime | None = None
     kind: int = 0
     mention_ids: tuple[str, ...] = ()
     mention_role_ids: tuple[str, ...] = ()
     mention_everyone: bool = False
     attachments: tuple[Attachment, ...] = ()
-    embed_titles: tuple[str, ...] = ()
+    embeds: tuple[Embed, ...] = ()
+    stickers: tuple[Sticker, ...] = ()
     referenced: MessageInfo | None = None
+    thread: Channel | None = None
     nonce: str | None = None
     pending: bool = False
     failed: bool = False
 
     @property
     def author_name(self) -> str:
-        return self.author_nick or self.author.display_name
+        nick = self.member.nick if self.member is not None else None
+        return nick or self.author.display_name
 
 
 class AuthKind(StrEnum):
@@ -270,6 +374,51 @@ class SessionInvalidated:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class ThreadUpserted:
+    thread: Channel
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadDeleted:
+    thread_id: str
+    guild_id: str | None
+    parent_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadListSynced:
+    """Active threads of ``channel_ids`` (or the whole guild when ``None``) are replaced."""
+
+    guild_id: str
+    channel_ids: tuple[str, ...] | None
+    threads: tuple[Channel, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MembersLoaded:
+    guild_id: str
+    members: tuple[Member, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RoleUpserted:
+    guild_id: str
+    role: Role
+
+
+@dataclass(frozen=True, slots=True)
+class RoleDeleted:
+    guild_id: str
+    role_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadPage:
+    threads: tuple[Channel, ...]
+    has_more: bool
+
+
 type GatewayEvent = (
     Ready
     | MessageCreated
@@ -283,4 +432,10 @@ type GatewayEvent = (
     | GuildRemoved
     | ConnectionChanged
     | SessionInvalidated
+    | ThreadUpserted
+    | ThreadDeleted
+    | ThreadListSynced
+    | MembersLoaded
+    | RoleUpserted
+    | RoleDeleted
 )
