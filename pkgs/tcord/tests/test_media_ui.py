@@ -150,7 +150,7 @@ async def test_avatar_column_hidden_when_disabled() -> None:
         _, messages = await open_general(app, pilot)
         lines = prompt_text(messages, make_message(30).id).splitlines()
         assert lines[1].startswith("Me")
-    assert client.media.requests == [] or all("avatars" not in url for url in client.media.requests)
+    assert not any("avatars" in url for url in client.media.requests)
 
 
 async def test_author_names_use_cached_member_nick_and_highest_coloured_role() -> None:
