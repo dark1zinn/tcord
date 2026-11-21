@@ -100,7 +100,6 @@ class RenderedImage:
     frames: tuple[Frame, ...]
     cols: int
     rows: int
-    image_ids: tuple[int, ...] = ()
 
     @property
     def animated(self) -> bool:
@@ -126,18 +125,32 @@ class ImageKey:
 # ----- decoding (pure, runs in a worker thread) --------------------------------------------
 
 
-def decode(data: bytes, *, animate: bool) -> list[tuple[Image.Image, float]]:
-    """RGBA frames with display durations (seconds). Raises on undecodable data."""
+def decode(
+    data: bytes, *, animate: bool, limit: tuple[int, int]
+) -> tuple[tuple[int, int], list[tuple[Image.Image, float]]]:
+    """Source size plus RGBA frames with display durations (seconds).
+
+    Each frame is shrunk to fit ``limit`` (pixels) as soon as it is decoded, so a large
+    animation never holds more than one full-size frame. Raises on undecodable data.
+    """
+
+    def shrink(frame: Image.Image) -> Image.Image:
+        rgba = frame.convert("RGBA")
+        if limit is not None:
+            rgba.thumbnail(limit, Image.Resampling.LANCZOS)
+        return rgba
+
     with Image.open(io.BytesIO(data)) as source:
+        size = source.size
         if not animate or not getattr(source, "is_animated", False):
-            return [(source.convert("RGBA"), 0.0)]
+            return size, [(shrink(source), 0.0)]
         frames = []
         for index, frame in enumerate(ImageSequence.Iterator(source)):
             if index >= MAX_FRAMES:
                 break
             seconds = max(frame.info.get("duration", 100) / 1000, MIN_FRAME_SECONDS)
-            frames.append((frame.convert("RGBA"), seconds))
-        return frames
+            frames.append((shrink(frame), seconds))
+        return size, frames
 
 
 def _flatten(image: Image.Image, background: RGB) -> Image.Image:
@@ -238,6 +251,7 @@ class ImageStore:
         self._cache: OrderedDict[ImageKey, RenderedImage] = OrderedDict()
         self._loading: dict[ImageKey, asyncio.Task[None]] = {}
         self._failed: set[ImageKey] = set()
+        self._uploaded: set[int] = set()
         self._next_id = 1
 
     @property
@@ -278,22 +292,27 @@ class ImageStore:
             self._failed.add(key)
             return
         finally:
-            self._loading.pop(key, None)
+            # A cancelled load (clear()) must not drop the bookkeeping of its replacement.
+            if self._loading.get(key) is asyncio.current_task():
+                del self._loading[key]
         self._cache[key] = rendered
         while len(self._cache) > CACHE_SIZE:
-            _, evicted = self._cache.popitem(last=False)
-            for image_id in evicted.image_ids:
-                self.write(kitty_delete(image_id))
+            # Kitty images stay uploaded: already-drawn prompts may still reference them, and
+            # the terminal evicts old images under its own storage quota. clear() frees them.
+            self._cache.popitem(last=False)
         self.on_ready(key.url)
 
     def _prepare(self, key: ImageKey, data: bytes) -> _Prepared:
         """Decode and scale (worker thread): half-block text or PNGs for kitty."""
-        frames = decode(data, animate=key.animate)
-        first = frames[0][0]
+        if self.protocol is ImageProtocol.KITTY:
+            limit = (key.max_cols * KITTY_CELL_PX[0], key.max_rows * KITTY_CELL_PX[1])
+        else:
+            limit = (key.max_cols, key.max_rows * 2)
+        size, frames = decode(data, animate=key.animate, limit=limit)
         if key.exact:
             cols, rows = max(1, key.max_cols), max(1, key.max_rows)
         else:
-            cols, rows = fit(first.width, first.height, key.max_cols, key.max_rows)
+            cols, rows = fit(*size, key.max_cols, key.max_rows)
         seconds = tuple(duration for _, duration in frames)
         if self.protocol is ImageProtocol.KITTY:
             pngs = tuple(png(image, cols, rows) for image, _ in frames)
@@ -310,13 +329,12 @@ class ImageStore:
             )
             return RenderedImage(frames, prepared.cols, prepared.rows)
         kitty_frames = []
-        ids = []
         for data, seconds in zip(prepared.pngs, prepared.seconds, strict=True):
             image_id = self._allocate_id()
             self.write(kitty_upload(image_id, data, prepared.cols, prepared.rows))
-            ids.append(image_id)
+            self._uploaded.add(image_id)
             kitty_frames.append(Frame(placeholder(image_id, prepared.cols, prepared.rows), seconds))
-        return RenderedImage(tuple(kitty_frames), prepared.cols, prepared.rows, tuple(ids))
+        return RenderedImage(tuple(kitty_frames), prepared.cols, prepared.rows)
 
     def _allocate_id(self) -> int:
         image_id = self._next_id
@@ -328,8 +346,8 @@ class ImageStore:
         for task in self._loading.values():
             task.cancel()
         self._loading.clear()
-        for rendered in self._cache.values():
-            for image_id in rendered.image_ids:
-                self.write(kitty_delete(image_id))
+        for image_id in self._uploaded:
+            self.write(kitty_delete(image_id))
+        self._uploaded.clear()
         self._cache.clear()
         self._failed.clear()

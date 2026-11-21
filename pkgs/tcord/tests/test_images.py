@@ -11,6 +11,7 @@ from tcord.images import (
     ImageKey,
     ImageProtocol,
     ImageStore,
+    decode,
     detect_protocol,
     fit,
     halfblock,
@@ -26,8 +27,8 @@ def png_bytes(width: int, height: int, color: tuple[int, int, int, int]) -> byte
     return buffer.getvalue()
 
 
-def gif_bytes(frames: int) -> bytes:
-    images = [Image.new("RGB", (4, 4), (i * 40, 0, 0)) for i in range(frames)]
+def gif_bytes(frames: int, *, side: int = 4) -> bytes:
+    images = [Image.new("RGB", (side, side), (i * 40, 0, 0)) for i in range(frames)]
     buffer = io.BytesIO()
     images[0].save(buffer, format="GIF", save_all=True, append_images=images[1:], duration=50)
     return buffer.getvalue()
@@ -167,10 +168,42 @@ async def test_kitty_store_uploads_each_animation_frame() -> None:
     rendered = store.get(key)
     assert rendered is not None
     assert rendered.animated
-    assert len(rendered.image_ids) == 3
+    assert len({frame.text.style for frame in rendered.frames}) == 3  # one image id per frame
     assert sum(sequence.count("a=T") for sequence in written) == 3
     store.clear()
     assert sum(sequence.count("a=d") for sequence in written) == 3
+
+
+async def test_cancelled_load_does_not_unregister_its_replacement() -> None:
+    fetches = 0
+    release = asyncio.Event()
+
+    async def fetch(url: str) -> bytes:
+        nonlocal fetches
+        fetches += 1
+        await release.wait()
+        return png_bytes(4, 4, (1, 2, 3, 255))
+
+    store = ImageStore(fetch, ImageProtocol.HALFBLOCK)
+    key = ImageKey("https://cdn.discordapp.com/a.png", 4, 2)
+    store.get(key)
+    await asyncio.sleep(0)
+    store.clear()  # e.g. protocol change while loading
+    store.get(key)  # the replacement load
+    for _ in range(3):
+        await asyncio.sleep(0)  # let the cancelled load unwind
+    store.get(key)
+    assert fetches == 2
+    release.set()
+    await store.settled()
+    assert store.get(key) is not None
+
+
+def test_decode_shrinks_every_frame_to_the_limit() -> None:
+    size, frames = decode(gif_bytes(3, side=400), animate=True, limit=(40, 20))
+    assert size == (400, 400)
+    assert len(frames) == 3
+    assert all(image.width <= 40 and image.height <= 20 for image, _ in frames)
 
 
 def test_off_protocol_never_fetches() -> None:
