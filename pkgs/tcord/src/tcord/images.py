@@ -263,6 +263,11 @@ class ImageStore:
     def failed(self, key: ImageKey) -> bool:
         return key in self._failed
 
+    async def settled(self) -> None:
+        """Wait until every in-flight load has finished (successfully or not)."""
+        while self._loading:
+            await asyncio.gather(*self._loading.values(), return_exceptions=True)
+
     async def _load(self, key: ImageKey) -> None:
         try:
             data = await self.fetch(key.url)

@@ -145,10 +145,7 @@ async def test_store_remembers_failures() -> None:
     store = ImageStore(fetch, ImageProtocol.HALFBLOCK)
     key = ImageKey("https://cdn.discordapp.com/bad.png", 4, 4)
     store.get(key)
-    for _ in range(20):
-        await asyncio.sleep(0.01)
-        if store.failed(key):
-            break
+    await asyncio.wait_for(store.settled(), 5)
     assert store.failed(key)
     assert store.get(key) is None
     assert attempts == 1
