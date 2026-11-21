@@ -157,7 +157,8 @@ async fn serve(stream: TcpStream, connection: usize, script: Script, url: String
                 Script::ReadyThenMessage => {
                     peer.dispatch(2, "MESSAGE_CREATE", message("10")).await;
                     peer.send(json!({"op": 1, "d": null})).await;
-                    peer.expect(1).await;
+                    // A jittered regular heartbeat may come first; log until the reply.
+                    while peer.expect(1).await != json!(2) {}
                 }
                 Script::DropThenResume => return,
                 Script::InvalidSession => {
@@ -317,19 +318,30 @@ async fn zlib_ready_then_message() {
         Some(GatewayEvent::MessageCreate(message)) => assert_eq!(message.content, "hi"),
         other => panic!("unexpected {other:?}"),
     }
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The heartbeat reply to the server's op 1 request carries the latest sequence (2). Wait
+    // for it rather than sleeping a fixed time: under load the reply can take a while.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let replied = log
+            .lock()
+            .unwrap()
+            .payloads
+            .iter()
+            .any(|(_, p)| p["op"] == 1 && p["d"] == 2);
+        if replied {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no heartbeat with seq 2"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let log = log.lock().unwrap();
     let identify = &log.payloads.iter().find(|(_, p)| p["op"] == 2).unwrap().1["d"];
     assert_eq!(identify["token"], "tok");
     assert_eq!(identify["capabilities"], 1047);
     assert_eq!(identify["properties"]["browser"], "Chrome");
-    let heartbeat = log
-        .payloads
-        .iter()
-        .rev()
-        .find(|(_, p)| p["op"] == 1)
-        .unwrap();
-    assert_eq!(heartbeat.1["d"], 2);
 }
 
 #[tokio::test]
