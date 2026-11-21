@@ -233,6 +233,7 @@ class MessageList(OptionList):
         return message.timestamp.astimezone().date() != previous.timestamp.astimezone().date()
 
     def _option(self, message: MessageInfo, previous: MessageInfo | None) -> Option:
+        message = self._resolved(message)
         grouped = self.view.density == "cozy" and _groups_with(previous, message)
         spaced = self.view.density == "cozy" and not grouped and previous is not None
         animating = message.id == self._animating
@@ -241,6 +242,7 @@ class MessageList(OptionList):
             message.edited_timestamp,
             message.pending,
             message.failed,
+            message.member,
             grouped,
             spaced,
             self._name_color(message),
@@ -252,6 +254,22 @@ class MessageList(OptionList):
         prompt = self._render_message(message, grouped, spaced)
         self._cache[message.id] = (signature, prompt)
         return Option(prompt, _option_id(message.id))
+
+    def _resolved(self, message: MessageInfo) -> MessageInfo:
+        """Fill the guild and member that REST history omits from the store's caches."""
+        store = self.store
+        if store is None or message.member is not None:
+            return message
+        guild_id = message.guild_id
+        if guild_id is None:
+            channel = store.channels.get(message.channel_id)
+            guild_id = channel.guild_id if channel is not None else None
+        if guild_id is None:
+            return message
+        member = store.member(guild_id, message.author.id)
+        if member is None and guild_id == message.guild_id:
+            return message
+        return replace(message, guild_id=guild_id, member=member)
 
     def _name_color(self, message: MessageInfo) -> int | None:
         store = self.store
@@ -493,7 +511,8 @@ class MessageList(OptionList):
                 style="bold",
             )
         if message.failed:
-            text.stylize("red")
+            # A base style: explicit span colours (kitty placeholder image ids) must survive.
+            text.style = "red"
             text.append("\n" + _("(failed — press R to retry)"), style="bold red")
         parts: list[RenderableType] = [text] if text else []
         if jumbo is not None:
@@ -530,7 +549,12 @@ class MessageList(OptionList):
         """Animate the media of the highlighted message only (keeps redraws cheap)."""
         target = None
         view = self.view
-        if message is not None and view.animate_media and view.show_images and _has_motion(message):
+        if (
+            message is not None
+            and view.animate_media
+            and view.show_images
+            and _has_motion(self._resolved(message))
+        ):
             target = message.id
         if target == self._animating:
             return

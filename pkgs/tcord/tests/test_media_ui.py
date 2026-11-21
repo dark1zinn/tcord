@@ -153,13 +153,16 @@ async def test_avatar_column_hidden_when_disabled() -> None:
     assert client.media.requests == [] or all("avatars" not in url for url in client.media.requests)
 
 
-async def test_author_names_use_highest_coloured_role_and_members_are_requested() -> None:
+async def test_author_names_use_cached_member_nick_and_highest_coloured_role() -> None:
     client = FakeClient()
     guild = client.gateway.snapshot.guilds[0]
     roles = (Role("7", "Mods", 0x00FF00, 5), Role("8", "VIP", 0xFF0000, 2))
     client.gateway.snapshot = replace(
         client.gateway.snapshot, guilds=(replace(guild, roles=roles),)
     )
+    # REST history carries neither guild_id nor member: both come from the store.
+    history = client.messages.histories[GENERAL]
+    client.messages.histories[GENERAL] = [replace(m, guild_id=None) for m in history]
     app = TcordApp(client, Settings(appearance=AppearanceSettings(image_protocol="off")))
     async with app.run_test(size=(120, 36)) as pilot:
         _, messages = await open_general(app, pilot)
@@ -167,7 +170,8 @@ async def test_author_names_use_highest_coloured_role_and_members_are_requested(
         guild_id, requested = client.gateway.member_requests[0]
         assert guild_id == GUILD_ID
         assert set(requested) == {ME.id, FRIEND.id}
-        client.gateway.push(MembersLoaded(GUILD_ID, (Member(FRIEND.id, roles=("7", "8")),)))
+        member = Member(FRIEND.id, nick="Pal", roles=("7", "8"))
+        client.gateway.push(MembersLoaded(GUILD_ID, (member,)))
         friend_message = make_message(29)
 
         def name_colour() -> str | None:
@@ -175,9 +179,9 @@ async def test_author_names_use_highest_coloured_role_and_members_are_requested(
             text = prompt.renderable if isinstance(prompt, Padding) else prompt
             assert isinstance(text, Text)
             span = next(
-                span for span in text.spans if text.plain[span.start : span.end] == "Friend"
+                (span for span in text.spans if text.plain[span.start : span.end] == "Pal"), None
             )
-            style = span.style
+            style = span.style if span is not None else None
             return style.color.name if isinstance(style, Style) and style.color else None
 
         await wait_until(pilot, lambda: name_colour() == "#00ff00")
