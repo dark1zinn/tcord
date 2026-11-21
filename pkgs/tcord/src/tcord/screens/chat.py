@@ -156,7 +156,12 @@ class ChatScreen(Screen):
     def _show_channels(self) -> None:
         store = self.tcord.store
         tree = self.query_one(ChannelTree)
-        tree.show(store, self.active_guild, self.tcord.settings.appearance.ascii_only)
+        tree.show(
+            store,
+            self.active_guild,
+            self.tcord.settings.appearance.ascii_only,
+            show_inaccessible=self.tcord.settings.layout.show_inaccessible_channels,
+        )
         if self.active_guild is None:
             header = _("Direct Messages")
         else:
@@ -610,6 +615,24 @@ class ChatScreen(Screen):
     def on_channel_tree_channel_chosen(self, event: ChannelTree.ChannelChosen) -> None:
         event.stop()
         self.open_channel(event.channel_id)
+
+    def on_channel_tree_forum_expanded(self, event: ChannelTree.ForumExpanded) -> None:
+        event.stop()
+        self._load_threads(event.channel_id)
+
+    @work(group="threads", exit_on_error=False)
+    async def _load_threads(self, channel_id: str) -> None:
+        page = await self.tcord.guard(self.tcord.client.gateway.threads(channel_id))
+        if page is not None:
+            self.apply_changes(self.tcord.store.set_threads(page.threads))
+
+    def on_message_list_thread_opened(self, event: MessageList.ThreadOpened) -> None:
+        event.stop()
+        store = self.tcord.store
+        if event.thread.id not in store.channels:
+            store.set_threads([event.thread])
+        self.open_channel(event.thread.id)
+        self.query_one(Composer).focus()
 
     def on_descendant_focus(self, event: events.DescendantFocus) -> None:
         self._update_mode()

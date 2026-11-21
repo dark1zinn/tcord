@@ -12,7 +12,7 @@ from client.cdn import (
     emoji_url,
     sticker_url,
 )
-from client.models import Attachment, Embed, MessageInfo, StickerFormat
+from client.models import Attachment, Channel, Embed, MessageInfo, StickerFormat
 from client.state import ChannelHistory, ChatStore
 from rich.console import Group, RenderableType
 from rich.padding import Padding
@@ -122,6 +122,13 @@ class MessageList(OptionList):
     class LoadOlder(Message):
         pass
 
+    class ThreadOpened(Message):
+        """Enter on a message that started a thread."""
+
+        def __init__(self, thread: Channel) -> None:
+            super().__init__()
+            self.thread = thread
+
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id, markup=False)
         self.messages: list[MessageInfo] = []
@@ -136,7 +143,6 @@ class MessageList(OptionList):
         self._animating: str | None = None
         self._animation_start = 0.0
         self._animation_timer: Timer | None = None
-        self._has_animation = False
 
     # ----- building --------------------------------------------------------------------------
 
@@ -295,7 +301,6 @@ class MessageList(OptionList):
             return None
         if not rendered.animated:
             return rendered.frame()
-        self._has_animation = True
         return rendered.frame(_frame_at(rendered, time.monotonic() - self._animation_start))
 
     def _avatar(self, message: MessageInfo) -> Text:
@@ -542,7 +547,6 @@ class MessageList(OptionList):
     def _advance_animation(self) -> None:
         if self._animating is None:
             return
-        self._has_animation = False
         self._rerender({self._animating})
 
     # ----- queries ---------------------------------------------------------------------------
@@ -578,3 +582,6 @@ class MessageList(OptionList):
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         event.stop()
+        message = self.highlighted_message()
+        if message is not None and message.thread is not None:
+            self.post_message(self.ThreadOpened(message.thread))
