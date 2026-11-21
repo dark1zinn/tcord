@@ -38,9 +38,20 @@
 - [ ] Voice chat through Rust audio/network components
 - [ ] Screen sharing
 
+## Rich media chat
+
+- [x] Terminal images: kitty Unicode placeholders (kitty, Ghostty) with a half-block fallback
+- [x] Avatars, server icons, unread pills and mention badges in the server rail
+- [x] Image attachments, embeds, GIFs (animated on the highlighted message), stickers, custom and jumbo emoji
+- [x] Role-coloured nicknames and spacing between message groups
+- [x] Permission-aware channel list (inaccessible channels hidden by default)
+- [x] Threads under their parent channel; forum posts with paging
+- [ ] Sixel and iTerm2 image protocols
+- [ ] Lottie stickers (shown as a text label today)
+
 ## Later feature parity
 
-- [ ] Attachment upload, reactions, threads/forums, member list, profiles, notifications, terminal image protocols, plugin APIs
+- [ ] Attachment upload, reactions, creating threads and forum posts, member list, profiles, notifications, plugin APIs
 
 ## Testing policy
 

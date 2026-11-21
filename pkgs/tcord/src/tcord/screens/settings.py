@@ -113,6 +113,36 @@ class SettingsScreen(ModalScreen[Settings | None]):
                         ),
                         Input(str(layout.channel_list_width), type="integer", id="channel_width"),
                     )
+                    yield _row(
+                        _("Show channels you can't access"),
+                        Switch(layout.show_inaccessible_channels, id="show_inaccessible_channels"),
+                    )
+                with TabPane(_("Media"), id="tab-media"):
+                    yield _row(
+                        _("Image display"),
+                        Select(
+                            [
+                                (_("Automatic"), "auto"),
+                                (_("Kitty graphics"), "kitty"),
+                                (_("Half blocks"), "halfblock"),
+                                (_("Off"), "off"),
+                            ],
+                            value=appearance.image_protocol,
+                            allow_blank=False,
+                            id="image_protocol",
+                        ),
+                    )
+                    yield _row(
+                        _("Show avatars"), Switch(appearance.show_avatars, id="show_avatars")
+                    )
+                    yield _row(
+                        _("Show images, stickers and emoji"),
+                        Switch(appearance.show_images, id="show_images"),
+                    )
+                    yield _row(
+                        _("Animate the highlighted message"),
+                        Switch(appearance.animate_media, id="animate_media"),
+                    )
                 with TabPane(_("Navigation"), id="tab-navigation"):
                     yield _row(
                         _("Key preset"),
@@ -177,12 +207,17 @@ class SettingsScreen(ModalScreen[Settings | None]):
                 show_timestamps=switch("show_timestamps"),
                 ascii_only=switch("ascii_only"),
                 reduced_motion=switch("reduced_motion"),
+                image_protocol=select("image_protocol"),
+                show_avatars=switch("show_avatars"),
+                show_images=switch("show_images"),
+                animate_media=switch("animate_media"),
             ),
             layout=replace(
                 current.layout,
                 show_server_rail=switch("show_server_rail"),
                 show_channel_list=switch("show_channel_list"),
                 channel_list_width=int(width_text),
+                show_inaccessible_channels=switch("show_inaccessible_channels"),
             ),
             navigation=replace(current.navigation, preset=select("preset")),
         )

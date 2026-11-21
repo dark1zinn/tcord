@@ -23,7 +23,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use tokio_util::sync::CancellationToken;
 
 use crate::auth::AuthController;
-use crate::discord::{Channel, Guild, Message};
+use crate::discord::{Channel, Guild, Member, Message, Role};
 use crate::error::{EngineError, Result};
 use crate::identity;
 use crate::models::{AuthKind, User};
@@ -113,6 +113,37 @@ pub enum GatewayEvent {
         retry_in: Option<f64>,
     },
     SessionInvalidated,
+    ThreadUpsert(Box<Channel>),
+    ThreadDelete {
+        id: String,
+        guild_id: Option<String>,
+        parent_id: Option<String>,
+    },
+    /// The signed-in user joined (`true`) or left (`false`) a thread.
+    ThreadMembership {
+        thread_id: String,
+        guild_id: Option<String>,
+        joined: bool,
+    },
+    /// Replaces the known active threads of the listed parents (or the whole guild).
+    ThreadListSync {
+        guild_id: String,
+        channel_ids: Option<Vec<String>>,
+        threads: Vec<Channel>,
+    },
+    /// Members from GUILD_MEMBER_ADD/UPDATE and GUILD_MEMBERS_CHUNK.
+    Members {
+        guild_id: String,
+        members: Vec<Member>,
+    },
+    RoleUpsert {
+        guild_id: String,
+        role: Role,
+    },
+    RoleDelete {
+        guild_id: String,
+        role_id: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +166,10 @@ impl Default for GatewayConfig {
 
 enum Command {
     Subscribe(String),
+    RequestMembers {
+        guild_id: String,
+        user_ids: Vec<String>,
+    },
 }
 
 /// A running gateway connection owned by a session.
@@ -164,6 +199,7 @@ impl GatewayHandle {
             cancel: cancel.clone(),
             ready: Some(ready_tx),
             session_id: None,
+            user_id: None,
             resume_url: None,
             seq: None,
             subscribed: HashSet::new(),
@@ -191,6 +227,15 @@ impl GatewayHandle {
 
     pub fn subscribe_guild(&self, guild_id: String) {
         let _ = self.commands.send(Command::Subscribe(guild_id));
+    }
+
+    /// Ask for the members of `user_ids` (op 8); they arrive as [`GatewayEvent::Members`].
+    pub fn request_members(&self, guild_id: String, user_ids: Vec<String>) {
+        if !user_ids.is_empty() {
+            let _ = self
+                .commands
+                .send(Command::RequestMembers { guild_id, user_ids });
+        }
     }
 
     pub fn disconnect(&self) {
@@ -222,6 +267,8 @@ struct Runner {
     cancel: CancellationToken,
     ready: Option<oneshot::Sender<Result<Ready>>>,
     session_id: Option<String>,
+    /// The signed-in user, to pick our own entries out of membership updates.
+    user_id: Option<String>,
     resume_url: Option<String>,
     seq: Option<u64>,
     subscribed: HashSet<String>,
@@ -358,6 +405,17 @@ impl Runner {
                             let _ = self.send(&mut socket, 37, subscription(&[guild_id])).await;
                         }
                     }
+                    Command::RequestMembers { guild_id, user_ids } => {
+                        // Discord caps a by-id request at 100 users.
+                        for chunk in user_ids.chunks(100) {
+                            let payload = json!({
+                                "guild_id": [guild_id],
+                                "user_ids": chunk,
+                                "presences": false,
+                            });
+                            let _ = self.send(&mut socket, 8, payload).await;
+                        }
+                    }
                 },
                 frame = socket.next() => {
                     let text = match frame {
@@ -491,6 +549,7 @@ impl Runner {
                 let Ok(ready) = parse_ready(&value) else {
                     return Some(Outcome::Reidentify);
                 };
+                self.user_id = Some(ready.user.id.clone());
                 self.session_id = value
                     .get("session_id")
                     .and_then(Value::as_str)
@@ -602,7 +661,8 @@ impl Runner {
                 .await;
             }
             "GUILD_CREATE" | "GUILD_UPDATE" => {
-                if let Ok(guild) = Guild::from_value(&parse()?) {
+                let me = self.auth.snapshot().user.map(|user| user.id);
+                if let Ok(guild) = Guild::parse(&parse()?, me.as_deref()) {
                     self.emit(GatewayEvent::GuildUpsert(Box::new(guild))).await;
                 }
             }
@@ -614,6 +674,131 @@ impl Runner {
                         .get("unavailable")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
+                })
+                .await;
+            }
+            "THREAD_CREATE" | "THREAD_UPDATE" => {
+                if let Ok(thread) = Channel::from_value(&parse()?, None, &[]) {
+                    self.emit(GatewayEvent::ThreadUpsert(Box::new(thread)))
+                        .await;
+                }
+            }
+            "THREAD_DELETE" => {
+                let value = parse()?;
+                self.emit(GatewayEvent::ThreadDelete {
+                    id: text(&value, "id")?,
+                    guild_id: text(&value, "guild_id"),
+                    parent_id: text(&value, "parent_id"),
+                })
+                .await;
+            }
+            "THREAD_LIST_SYNC" => {
+                let value = parse()?;
+                let guild_id = text(&value, "guild_id")?;
+                let channel_ids = value
+                    .get("channel_ids")
+                    .and_then(Value::as_array)
+                    .map(|ids| {
+                        ids.iter()
+                            .filter_map(|id| id.as_str().map(str::to_owned))
+                            .collect()
+                    });
+                // `members` lists the signed-in user's thread memberships separately.
+                let joined: HashSet<&str> = value
+                    .get("members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|member| member.get("id").and_then(Value::as_str))
+                    .collect();
+                let threads = value
+                    .get("threads")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|thread| Channel::from_value(thread, Some(&guild_id), &[]).ok())
+                    .map(|mut thread| {
+                        thread.joined |= joined.contains(thread.id.as_str());
+                        thread
+                    })
+                    .collect();
+                self.emit(GatewayEvent::ThreadListSync {
+                    guild_id,
+                    channel_ids,
+                    threads,
+                })
+                .await;
+            }
+            "THREAD_MEMBER_UPDATE" => {
+                // Always about the signed-in user (e.g. after joining or unarchiving).
+                let value = parse()?;
+                self.emit(GatewayEvent::ThreadMembership {
+                    thread_id: text(&value, "id")?,
+                    guild_id: text(&value, "guild_id"),
+                    joined: true,
+                })
+                .await;
+            }
+            "THREAD_MEMBERS_UPDATE" => {
+                let value = parse()?;
+                let me = self.user_id.as_deref()?;
+                let added = value
+                    .get("added_members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|member| member.get("user_id").and_then(Value::as_str) == Some(me));
+                let removed = value
+                    .get("removed_member_ids")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .any(|id| id.as_str() == Some(me));
+                if added || removed {
+                    self.emit(GatewayEvent::ThreadMembership {
+                        thread_id: text(&value, "id")?,
+                        guild_id: text(&value, "guild_id"),
+                        joined: added,
+                    })
+                    .await;
+                }
+            }
+            "GUILD_MEMBER_ADD" | "GUILD_MEMBER_UPDATE" => {
+                let value = parse()?;
+                if let (Some(guild_id), Some(member)) =
+                    (text(&value, "guild_id"), Member::from_value(&value))
+                {
+                    self.emit(GatewayEvent::Members {
+                        guild_id,
+                        members: vec![member],
+                    })
+                    .await;
+                }
+            }
+            "GUILD_MEMBERS_CHUNK" => {
+                let value = parse()?;
+                let guild_id = text(&value, "guild_id")?;
+                let members = value
+                    .get("members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Member::from_value)
+                    .collect();
+                self.emit(GatewayEvent::Members { guild_id, members }).await;
+            }
+            "GUILD_ROLE_CREATE" | "GUILD_ROLE_UPDATE" => {
+                let value = parse()?;
+                let guild_id = text(&value, "guild_id")?;
+                if let Some(Ok(role)) = value.get("role").map(Role::from_value) {
+                    self.emit(GatewayEvent::RoleUpsert { guild_id, role }).await;
+                }
+            }
+            "GUILD_ROLE_DELETE" => {
+                let value = parse()?;
+                self.emit(GatewayEvent::RoleDelete {
+                    guild_id: text(&value, "guild_id")?,
+                    role_id: text(&value, "role_id")?,
                 })
                 .await;
             }
@@ -655,7 +840,7 @@ fn subscription(guilds: &[String]) -> Value {
         .map(|id| {
             (
                 id.clone(),
-                json!({"typing": true, "threads": false, "activities": false}),
+                json!({"typing": true, "threads": true, "activities": false}),
             )
         })
         .collect();
@@ -702,12 +887,31 @@ pub fn parse_ready(value: &Value) -> Result<Ready> {
         .flatten()
         .filter_map(|user| User::from_value(user).ok())
         .collect();
+    let merged: Vec<&Value> = value
+        .get("merged_members")
+        .and_then(Value::as_array)
+        .map(|lists| lists.iter().collect())
+        .unwrap_or_default();
     let guilds = value
         .get("guilds")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|guild| Guild::from_value(guild).ok())
+        .enumerate()
+        .filter_map(|(index, guild)| {
+            let mut guild = Guild::parse(guild, Some(&user.id)).ok()?;
+            if guild.me.is_none() {
+                // merged_members is aligned with guilds; each entry lists this user's member.
+                guild.me = merged
+                    .get(index)
+                    .and_then(|members| members.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Member::from_value)
+                    .find(|member| member.user_id == user.id);
+            }
+            Some(guild)
+        })
         .collect();
     let private_channels = value
         .get("private_channels")

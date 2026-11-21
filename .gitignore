@@ -16,3 +16,6 @@ target/
 # Built extension modules
 *.so
 *.pyd
+
+# pytest-textual-snapshot failure report
+snapshot_report.html

@@ -48,9 +48,10 @@ async def running(
     preset: str = "standard",
     size: tuple[int, int] = (120, 36),
     tmp_path: Path | None = None,
+    settings: Settings | None = None,
 ) -> AsyncGenerator[tuple[TcordApp, Pilot]]:
     file = SettingsFile((tmp_path or Path("/nonexistent")) / "settings.toml")
-    app = TcordApp(client, settings_for(preset), file)
+    app = TcordApp(client, settings or settings_for(preset), file)
     async with app.run_test(size=size) as pilot:
         yield app, pilot
 

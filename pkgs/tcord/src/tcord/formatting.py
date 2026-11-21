@@ -20,10 +20,13 @@ class Icons:
     dm: str
     reply: str
     embed: str
+    thread: str
+    forum: str
+    locked: str
 
 
-UNICODE_ICONS = Icons("●", "▾", "🔊", "📢", "📎", "✉", "╭", "▏")
-ASCII_ICONS = Icons("*", "v", "(v)", "(!)", "[file]", "DM", ",", "|")
+UNICODE_ICONS = Icons("●", "▾", "🔊", "📢", "📎", "✉", "╭", "▏", "↳", "💬", "🔒")
+ASCII_ICONS = Icons("*", "v", "(v)", "(!)", "[file]", "DM", ",", "|", "->", "[f]", "[x]")
 
 
 def icons(ascii_only: bool) -> Icons:

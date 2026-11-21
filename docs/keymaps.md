@@ -22,6 +22,10 @@ lists the bindings currently in effect.
 `ctrl+q` (quit), `ctrl+k` (switcher) and `F1` (help) also work while you type in the
 composer.
 
+In the channel list, opening a forum (`item.open`) expands or collapses its posts, and the
+"Load more posts…" row fetches the next page. Opening a message that started a thread
+switches to that thread.
+
 ## Actions
 
 "native" means the preset does not handle the action. The focused widget's own key does it

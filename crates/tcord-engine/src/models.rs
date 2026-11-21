@@ -9,6 +9,9 @@ pub struct User {
     pub username: String,
     #[serde(default)]
     pub global_name: Option<String>,
+    /// Avatar hash (`a_` prefix when animated).
+    #[serde(default)]
+    pub avatar: Option<String>,
     #[serde(default)]
     pub bot: bool,
 }

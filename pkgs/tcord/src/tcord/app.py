@@ -16,6 +16,7 @@ from textual.screen import Screen
 
 from . import errors
 from .i18n import _
+from .images import ImageStore, resolve_protocol
 from .keymap import GLOBAL_PRIORITY, Keymap
 from .screens.chat import ChatScreen
 from .screens.confirm import ConfirmScreen
@@ -58,6 +59,13 @@ class TcordApp(App):
         self.chat_screen: ChatScreen | None = None
         self._connecting = False
         self._persist_warned = False
+        self._ready_images: set[str] = set()
+        self.images = ImageStore(
+            client.media.fetch,
+            resolve_protocol(self.settings.appearance.image_protocol),
+            write=self._write_terminal,
+            on_ready=self._image_ready,
+        )
 
     # ----- lifecycle -------------------------------------------------------------------------
 
@@ -72,6 +80,7 @@ class TcordApp(App):
         self.run_auth(self.client.auth.resume_session())
 
     def on_unmount(self) -> None:
+        self.images.clear()
         self.client.close()
 
     async def _watch_auth(self) -> None:
@@ -137,6 +146,7 @@ class TcordApp(App):
         self.workers.cancel_group(self, "connect")
         self._connecting = False
         self.store.reset()
+        self.images.clear()
         self.chat_screen = None
         login = LoginScreen()
         self.login_screen = login
@@ -194,6 +204,10 @@ class TcordApp(App):
             self.theme = "tcord-dark"
         self.animation_level = "none" if appearance.reduced_motion else "full"
         self.set_class(appearance.ascii_only, "-ascii")
+        protocol = resolve_protocol(appearance.image_protocol)
+        if protocol is not self.images.protocol:
+            self.images.clear()
+            self.images.protocol = protocol
         self.settings = settings
         self.keymap, warnings = Keymap.from_settings(settings.navigation.preset, settings.keymap)
         for warning in warnings:
@@ -201,6 +215,27 @@ class TcordApp(App):
         self.set_keymap(self._priority_keymap())
         if self.chat_screen is not None and self.chat_screen.is_mounted:
             self.chat_screen.apply_settings()
+
+    # ----- images ----------------------------------------------------------------------------
+
+    def _write_terminal(self, data: str) -> None:
+        # Textual has no public raw-output API; kitty graphics uploads go through the driver
+        # so they stay ordered with screen updates.
+        driver = self._driver
+        if driver is not None:
+            driver.write(data)
+
+    def _image_ready(self, url: str) -> None:
+        """Batch image-ready notifications into one redraw per event-loop turn."""
+        first = not self._ready_images
+        self._ready_images.add(url)
+        if first:
+            self.call_later(self._flush_ready_images)
+
+    def _flush_ready_images(self) -> None:
+        urls, self._ready_images = self._ready_images, set()
+        if self.chat_screen is not None and self.chat_screen.is_mounted:
+            self.chat_screen.images_ready(urls)
 
     def _priority_keymap(self) -> dict[str, str]:
         """Single-key, non-character bindings of global actions (they must work while typing)."""

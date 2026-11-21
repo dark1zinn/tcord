@@ -21,10 +21,22 @@ def _message(message_id: str, content: str, nonce: str | None = None) -> dict:
         "id": message_id,
         "channel_id": "101",
         "guild_id": "100",
-        "author": {"id": "1", "username": "me"},
+        "author": {"id": "1", "username": "me", "avatar": "hash"},
+        "member": {"nick": "Me!", "roles": ["7"]},
         "content": content,
         "nonce": nonce,
         "timestamp": "2026-01-01T00:00:00+00:00",
+        "attachments": [
+            {
+                "id": "3",
+                "filename": "cat.png",
+                "url": "https://cdn.discordapp.com/attachments/1/2/cat.png",
+                "size": 7,
+                "content_type": "image/png",
+                "width": 64,
+                "height": 32,
+            }
+        ],
     }
 
 
@@ -123,6 +135,11 @@ async def test_ready_live_events_send_and_logout(client: TcordClient) -> None:
 
     incoming = await _next_message(client)
     assert incoming.message.content == "hello"
+    assert incoming.message.author_name == "Me!"
+    assert incoming.message.member is not None
+    assert incoming.message.member.roles == ("7",)
+    assert incoming.message.author.avatar == "hash"
+    assert incoming.message.attachments[0].is_image
 
     sent = await client.messages.send("101", "sent", nonce=SENT_NONCE)
     echo = await _next_message(client)
