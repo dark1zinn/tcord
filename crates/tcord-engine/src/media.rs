@@ -136,7 +136,8 @@ impl MediaCache {
     }
 
     async fn store(&self, path: PathBuf, bytes: Vec<u8>) {
-        let evict = self.writes.fetch_add(1, Ordering::Relaxed) % EVICT_EVERY == EVICT_EVERY - 1;
+        let write = self.writes.fetch_add(1, Ordering::Relaxed);
+        let evict = write % EVICT_EVERY == EVICT_EVERY - 1;
         // Cache failures only cost a re-download, so they are ignored.
         let _ = tokio::task::spawn_blocking(move || {
             let Some(dir) = path.parent() else {
@@ -145,9 +146,12 @@ impl MediaCache {
             if std::fs::create_dir_all(dir).is_err() {
                 return;
             }
-            let temporary = path.with_extension("part");
-            if std::fs::write(&temporary, &bytes).is_ok() {
-                let _ = std::fs::rename(&temporary, &path);
+            // Concurrent fetches of one URL each write their own file; the rename is atomic.
+            let temporary = path.with_extension(format!("{}-{write}.part", std::process::id()));
+            if std::fs::write(&temporary, &bytes).is_ok()
+                && std::fs::rename(&temporary, &path).is_err()
+            {
+                let _ = std::fs::remove_file(&temporary);
             }
             if evict {
                 evict_oldest(dir, CACHE_LIMIT_BYTES);
