@@ -196,8 +196,10 @@ class FakeGateway:
         self.events: asyncio.Queue[GatewayEvent | None] = asyncio.Queue()
         self.subscribed: list[str] = []
         self.member_requests: list[tuple[str, tuple[str, ...]]] = []
-        self.thread_calls: list[str] = []
+        self.thread_calls: list[tuple[str, int]] = []
         self.thread_pages: dict[str, list[Channel]] = {}
+        self.thread_page_size: int | None = None
+        self.thread_failures = 0
         self.connects = 0
         self.snapshot = snapshot()
 
@@ -236,8 +238,14 @@ class FakeGateway:
     async def threads(
         self, channel_id: str, *, archived: bool = False, offset: int = 0
     ) -> ThreadPage:
-        self.thread_calls.append(channel_id)
-        return ThreadPage(tuple(self.thread_pages.get(channel_id, ())), has_more=False)
+        self.thread_calls.append((channel_id, offset))
+        if self.thread_failures:
+            self.thread_failures -= 1
+            raise NetworkError("search unavailable")
+        posts = self.thread_pages.get(channel_id, [])
+        size = self.thread_page_size or len(posts)
+        page = posts[offset : offset + size]
+        return ThreadPage(tuple(page), has_more=offset + size < len(posts))
 
 
 class FakeMedia:

@@ -619,13 +619,20 @@ class ChatScreen(Screen):
 
     def on_channel_tree_forum_expanded(self, event: ChannelTree.ForumExpanded) -> None:
         event.stop()
-        self._load_threads(event.channel_id)
+        self._load_posts(event.channel_id, event.offset)
 
     @work(group="threads", exit_on_error=False)
-    async def _load_threads(self, channel_id: str) -> None:
-        page = await self.tcord.guard(self.tcord.client.gateway.threads(channel_id))
-        if page is not None:
-            self.apply_changes(self.tcord.store.set_threads(page.threads))
+    async def _load_posts(self, forum_id: str, offset: int) -> None:
+        tree = self.query_one(ChannelTree)
+        gateway = self.tcord.client.gateway
+        page = await self.tcord.guard(gateway.threads(forum_id, offset=offset))
+        if page is None:
+            tree.forum_failed(forum_id)
+            return
+        tree.forum_loaded(forum_id, len(page.threads), has_more=page.has_more)
+        changes = self.tcord.store.set_threads(page.threads)
+        # The "load more" row changes even when no post is new.
+        self.apply_changes(changes or [ChannelsChanged(self.active_guild)])
 
     def on_message_list_thread_opened(self, event: MessageList.ThreadOpened) -> None:
         event.stop()

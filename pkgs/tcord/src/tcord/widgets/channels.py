@@ -23,6 +23,10 @@ _LISTED = {
 }
 
 
+#: Node data of a forum's "load more posts" row: this prefix plus the forum id.
+_MORE = "more:"
+
+
 def _order(channel: Channel) -> tuple[int, int]:
     return channel.position, int(channel.id) if channel.id.isdigit() else 0
 
@@ -41,11 +45,12 @@ class ChannelTree(Tree[str]):
             self.channel_id = channel_id
 
     class ForumExpanded(Message):
-        """A forum was expanded and its posts should be fetched."""
+        """Fetch the forum's posts starting at ``offset`` (expanded or "load more")."""
 
-        def __init__(self, channel_id: str) -> None:
+        def __init__(self, channel_id: str, offset: int) -> None:
             super().__init__()
             self.channel_id = channel_id
+            self.offset = offset
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__("", id=id)
@@ -57,7 +62,10 @@ class ChannelTree(Tree[str]):
         self._ascii = False
         self._show_inaccessible = False
         self._expanded_forums: set[str] = set()
-        self._loaded_forums: set[str] = set()
+        #: Forum id -> posts fetched so far (present once the first page arrived).
+        self._forum_offsets: dict[str, int] = {}
+        self._forum_loading: set[str] = set()
+        self._forum_more: set[str] = set()
 
     # ----- building --------------------------------------------------------------------------
 
@@ -118,6 +126,9 @@ class ChannelTree(Tree[str]):
             self._channel_nodes[channel.id] = node
             for post in store.thread_children(channel.id):
                 self._leaf(node, post)
+            if channel.id in self._forum_more:
+                more = Text("  " + _("Load more posts…"), style="dim italic")
+                node.add_leaf(more, data=_MORE + channel.id)
             if channel.id in self._expanded_forums:
                 node.expand()
             return
@@ -207,9 +218,8 @@ class ChannelTree(Tree[str]):
             return
         event.stop()
         self._expanded_forums.add(channel.id)
-        if channel.id not in self._loaded_forums:
-            self._loaded_forums.add(channel.id)
-            self.post_message(self.ForumExpanded(channel.id))
+        if channel.id not in self._forum_offsets:
+            self._request_posts(channel.id)
 
     def on_tree_node_collapsed(self, event: Tree.NodeCollapsed[str]) -> None:
         self._expanded_forums.discard(event.node.data or "")
@@ -219,6 +229,9 @@ class ChannelTree(Tree[str]):
         channel_id = event.node.data
         store = self._store
         if channel_id is None or store is None:
+            return
+        if channel_id.startswith(_MORE):
+            self._request_posts(channel_id.removeprefix(_MORE))
             return
         channel = store.channels.get(channel_id)
         if channel is None:
@@ -232,7 +245,28 @@ class ChannelTree(Tree[str]):
         elif channel.is_readable:
             self.post_message(self.ChannelChosen(channel_id))
 
-    def reset_forums(self) -> None:
-        """Forget which forums were loaded (new session or guild switch)."""
-        self._loaded_forums.clear()
-        self._expanded_forums.clear()
+    # ----- forum posts -----------------------------------------------------------------------
+
+    def _request_posts(self, forum_id: str) -> None:
+        if forum_id in self._forum_loading:
+            return
+        self._forum_loading.add(forum_id)
+        self.post_message(self.ForumExpanded(forum_id, self._forum_offsets.get(forum_id, 0)))
+
+    def forum_loaded(self, forum_id: str, count: int, *, has_more: bool) -> None:
+        """A page of ``count`` posts arrived; the next request continues after them."""
+        self._forum_loading.discard(forum_id)
+        self._forum_offsets[forum_id] = self._forum_offsets.get(forum_id, 0) + count
+        if has_more:
+            self._forum_more.add(forum_id)
+        else:
+            self._forum_more.discard(forum_id)
+
+    def forum_failed(self, forum_id: str) -> None:
+        """The request failed: expanding again (or "load more") retries it."""
+        self._forum_loading.discard(forum_id)
+        if self._forum_offsets.get(forum_id) is None:
+            self._expanded_forums.discard(forum_id)
+            node = self._channel_nodes.get(forum_id)
+            if node is not None:
+                node.collapse()

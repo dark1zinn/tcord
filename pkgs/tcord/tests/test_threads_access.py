@@ -112,10 +112,12 @@ async def test_active_threads_nest_under_parent_and_open() -> None:
         assert (THREAD, None) in client.messages.history_calls
 
 
-async def test_forum_posts_load_when_expanded() -> None:
+async def test_forum_posts_load_when_expanded_and_page_on_demand() -> None:
     client = FakeClient()
     with_access_rules(client)
-    client.gateway.thread_pages[FORUM] = [thread(POST, FORUM, "How do I log in?")]
+    posts = [thread(f"6000000000000000{i:02d}", FORUM, f"Post {i}") for i in range(3)]
+    client.gateway.thread_pages[FORUM] = posts
+    client.gateway.thread_page_size = 2
     app = TcordApp(client)
     async with app.run_test(size=(120, 36)) as pilot:
         _, tree = await guild_tree(app, pilot)
@@ -124,8 +126,32 @@ async def test_forum_posts_load_when_expanded() -> None:
         tree.highlight_channel(FORUM)
         tree.focus()
         await pilot.press("enter")  # toggles the forum open
+        await wait_until(pilot, lambda: any("Load more posts" in lab for lab in labels(tree)))
+        assert sum("Post" in label for label in labels(tree)) == 2
+        tree.move_cursor(tree._channel_nodes[FORUM].children[-1])
+        await pilot.press("enter")
+        await wait_until(pilot, lambda: not any("Load more" in lab for lab in labels(tree)))
+        assert sum("Post" in label for label in labels(tree)) == 3
+        assert client.gateway.thread_calls == [(FORUM, 0), (FORUM, 2)]
+
+
+async def test_failed_forum_load_retries_on_next_expand() -> None:
+    client = FakeClient()
+    with_access_rules(client)
+    client.gateway.thread_pages[FORUM] = [thread(POST, FORUM, "How do I log in?")]
+    client.gateway.thread_failures = 1
+    app = TcordApp(client)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, tree = await guild_tree(app, pilot)
+        tree.highlight_channel(FORUM)
+        tree.focus()
+        await pilot.press("enter")
+        await wait_until(pilot, lambda: len(client.gateway.thread_calls) == 1)
+        await settle(pilot)
+        assert not tree._channel_nodes[FORUM].is_expanded  # collapsed again: expand retries
+        await pilot.press("enter")
         await wait_until(pilot, lambda: any("How do I log in?" in lab for lab in labels(tree)))
-        assert client.gateway.thread_calls == [FORUM]
+        assert client.gateway.thread_calls == [(FORUM, 0), (FORUM, 0)]
 
 
 async def test_enter_on_thread_starter_opens_the_thread() -> None:
