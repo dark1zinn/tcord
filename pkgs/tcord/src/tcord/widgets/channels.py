@@ -136,7 +136,8 @@ class ChannelTree(Tree[str]):
         if not threads:
             self._leaf(parent, channel)
             return
-        node = parent.add(self._label(channel), data=channel.id, expand=True)
+        # Always open and without a toggle arrow, so the name lines up with its siblings.
+        node = parent.add(self._label(channel), data=channel.id, expand=True, allow_expand=False)
         self._channel_nodes[channel.id] = node
         for thread in threads:
             self._leaf(node, thread)
