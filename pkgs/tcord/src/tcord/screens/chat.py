@@ -318,6 +318,8 @@ class ChatScreen(Screen):
             me_id=me.id if me else None,
             mention_style=f"on {mention.hex}",
             show_avatars=appearance.show_avatars,
+            show_images=appearance.show_images,
+            animate_media=appearance.animate_media and not appearance.reduced_motion,
             background=background.rgb,
             avatar_style=f"bold on {theme.panel or '#1e1f22'}",
         )

@@ -5,8 +5,19 @@ from __future__ import annotations
 import io
 from dataclasses import replace
 
-from client.cdn import avatar_url, guild_icon_url
-from client.models import Member, MembersLoaded, MessageCreated, Role
+from client.cdn import attachment_preview_url, avatar_url, emoji_url, guild_icon_url, sticker_url
+from client.models import (
+    Attachment,
+    Embed,
+    EmbedMedia,
+    Member,
+    MembersLoaded,
+    MessageCreated,
+    MessageInfo,
+    Role,
+    Sticker,
+    StickerFormat,
+)
 from conftest import settle, wait_until
 from fakes import FRIEND, GENERAL, GUILD_ID, ME, OTHER, RANDOM, FakeClient, make_message
 from PIL import Image
@@ -15,6 +26,7 @@ from rich.padding import Padding
 from rich.style import Style
 from rich.text import Text
 from tcord.app import TcordApp
+from tcord.images import PLACEHOLDER, fit
 from tcord.screens.chat import ChatScreen
 from tcord.settings import AppearanceSettings, Settings
 from tcord.widgets.messages import MessageList
@@ -170,3 +182,145 @@ async def test_author_names_use_highest_coloured_role_and_members_are_requested(
 
         await wait_until(pilot, lambda: name_colour() == "#00ff00")
         assert len(client.gateway.member_requests) == 1  # no duplicate requests
+
+
+def gif(frames: int) -> bytes:
+    images = [Image.new("RGB", (8, 8), (i * 80, 0, 0)) for i in range(frames)]
+    buffer = io.BytesIO()
+    images[0].save(buffer, format="GIF", save_all=True, append_images=images[1:], duration=40)
+    return buffer.getvalue()
+
+
+def show_message(client: FakeClient, message: MessageInfo, settings: Settings) -> TcordApp:
+    """An app whose #general history ends with ``message``."""
+    client.messages.histories[GENERAL].append(message)
+    return TcordApp(client, settings)
+
+
+async def test_image_attachment_sticker_and_jumbo_emoji_render_as_images() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "cat.png",
+        "https://cdn.discordapp.com/attachments/1/2/cat.png",
+        10,
+        proxy_url="https://media.discordapp.net/attachments/1/2/cat.png",
+        content_type="image/png",
+        width=200,
+        height=100,
+    )
+    sticker = Sticker("77", "wave", StickerFormat.PNG)
+    message = make_message(31, author=FRIEND, content="<:blob:55> <:blob:56>")
+    message = replace(message, attachments=(attachment,), stickers=(sticker,))
+    cols, rows = fit(200, 100, 40, 15)
+    client.media.files[attachment_preview_url(attachment, cols * 10, rows * 20)] = png((1, 2, 3))
+    client.media.files[sticker_url(sticker, 160) or ""] = png((4, 5, 6))
+    for emoji_id in ("55", "56"):
+        client.media.files[emoji_url(emoji_id, animated=False, pixels=48)] = png((7, 8, 9))
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+
+        def text() -> str:
+            return prompt_text(messages, message.id)
+
+        await wait_until(pilot, lambda: text().count("▀▀▀▀ ▀▀▀▀") >= 1 and "[sticker" not in text())
+        rendered = text()
+        assert "<:blob" not in rendered  # jumbo emoji replace the codes
+        assert ":blob:" not in rendered
+        assert "cat.png" not in rendered  # the preview replaces the file line
+        assert sum(1 for line in rendered.splitlines() if line.strip().startswith("▀" * 16)) >= 8
+
+
+async def test_missing_media_falls_back_to_text() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "notes.txt", "https://cdn.discordapp.com/attachments/1/2/notes.txt", 2048
+    )
+    lottie = Sticker("78", "dance", StickerFormat.LOTTIE)
+    message = replace(
+        make_message(31, author=FRIEND, content="hi <:gone:9>"),
+        attachments=(attachment,),
+        stickers=(lottie,),
+    )
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await settle(pilot, 10)
+        rendered = prompt_text(messages, message.id)
+        assert "hi :gone:" in rendered  # half-blocks are too coarse for inline emoji
+        assert "notes.txt (2.0 KB)" in rendered
+        assert "[sticker: dance]" in rendered
+
+
+async def test_gif_link_is_replaced_by_its_preview() -> None:
+    client = FakeClient()
+    preview = EmbedMedia(
+        "https://media.tenor.com/x.png",
+        proxy_url="https://images-ext-1.discordapp.net/external/x.png",
+        width=100,
+        height=100,
+    )
+    embed = Embed(kind="gifv", url="https://tenor.com/view/cat", thumbnail=preview)
+    message = replace(
+        make_message(31, author=FRIEND, content="https://tenor.com/view/cat"), embeds=(embed,)
+    )
+    client.media.files[preview.proxy_url or ""] = png((9, 9, 9))
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await wait_until(pilot, lambda: "▀" in prompt_text(messages, message.id))
+        assert "tenor.com" not in prompt_text(messages, message.id)
+
+
+async def test_highlighted_gif_animates() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "a.gif",
+        "https://cdn.discordapp.com/attachments/1/2/a.gif",
+        10,
+        content_type="image/gif",
+        width=8,
+        height=8,
+    )
+    message = replace(make_message(31, author=FRIEND, content=""), attachments=(attachment,))
+    client.media.files[attachment.url] = gif(3)
+    settings = Settings(appearance=AppearanceSettings(image_protocol="halfblock"))
+    app = show_message(client, message, settings)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        messages.focus()
+        messages.highlighted = messages.get_option_index(f"m{message.id}")
+        seen: set[str] = set()
+
+        def colours() -> bool:
+            prompt = messages.get_option(f"m{message.id}").prompt
+            console = Console(width=80, record=True, color_system="truecolor")
+            console.print(prompt)
+            seen.add(console.export_text(styles=True))
+            return len(seen) >= 2
+
+        await wait_until(pilot, colours, rounds=200)
+
+
+async def test_kitty_renders_inline_custom_emoji() -> None:
+    client = FakeClient()
+    message = make_message(31, author=FRIEND, content="hello <:wave:12> there")
+    client.media.files[emoji_url("12", animated=False, pixels=48)] = png((1, 1, 1))
+    settings = Settings(appearance=AppearanceSettings(image_protocol="kitty"))
+    app = show_message(client, message, settings)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, message.id))
+        assert ":wave:" not in prompt_text(messages, message.id)
+
+
+async def open_general_with(
+    app: TcordApp, pilot: Pilot, count: int
+) -> tuple[ChatScreen, MessageList]:
+    chat = await chat_screen(app, pilot)
+    chat.choose_guild(GUILD_ID)
+    chat.open_channel(GENERAL)
+    messages = chat.query_one(MessageList)
+    await wait_until(pilot, lambda: len(messages.messages) == count)
+    await settle(pilot)
+    return chat, messages
