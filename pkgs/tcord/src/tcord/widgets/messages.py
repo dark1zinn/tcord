@@ -3,8 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
+from client.cdn import avatar_url
 from client.models import MessageInfo
-from client.state import ChannelHistory
+from client.state import ChannelHistory, ChatStore
+from rich.console import RenderableType
+from rich.padding import Padding
+from rich.style import Style
+from rich.styled import Styled
+from rich.table import Table
 from rich.text import Text
 from textual.message import Message
 from textual.widgets import OptionList
@@ -12,10 +18,14 @@ from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from ..formatting import day_label, format_time, human_size, icons
 from ..i18n import _
+from ..images import ImageKey, ImageStore
 from ..markdown import RenderContext, plain, render
 
 GROUP_WINDOW = timedelta(minutes=7)
 TOP = "top"
+AVATAR_COLS = 4
+AVATAR_ROWS = 2
+AVATAR_PIXELS = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +36,11 @@ class ViewOptions:
     ascii_only: bool = False
     me_id: str | None = None
     mention_style: str = "on #3f3a2e"
+    show_avatars: bool = True
+    #: Message list background, used to flatten transparent images.
+    background: tuple[int, int, int] = (49, 51, 56)
+    #: Placeholder tile for avatars that are not (yet) loaded.
+    avatar_style: str = "bold on #4e5058"
 
 
 def _option_id(message_id: str) -> str:
@@ -55,7 +70,10 @@ class MessageList(OptionList):
         self.context = RenderContext()
         self.channel_label = ""
         self.has_more_before = False
-        self._cache: dict[tuple, Text] = {}
+        self.store: ChatStore | None = None
+        self.images: ImageStore | None = None
+        self._cache: dict[str, tuple[tuple, RenderableType]] = {}
+        self._image_owners: dict[str, set[str]] = {}
 
     # ----- building --------------------------------------------------------------------------
 
@@ -76,6 +94,11 @@ class MessageList(OptionList):
         self.view, self.context, self.channel_label = view, context, channel_label
         self.messages = list(history.messages) if history else []
         self.has_more_before = bool(history and history.has_more_before)
+        current = {message.id for message in self.messages}
+        self._cache = {key: value for key, value in self._cache.items() if key in current}
+        self._image_owners = {
+            url: owners & current for url, owners in self._image_owners.items() if owners & current
+        }
         options = [self._sentinel()]
         previous: MessageInfo | None = None
         for message in self.messages:
@@ -142,19 +165,28 @@ class MessageList(OptionList):
 
     def _option(self, message: MessageInfo, previous: MessageInfo | None) -> Option:
         grouped = self.view.density == "cozy" and _groups_with(previous, message)
-        key = (
-            message.id,
+        spaced = self.view.density == "cozy" and not grouped and previous is not None
+        signature = (
             message.content,
             message.edited_timestamp,
             message.pending,
             message.failed,
             grouped,
+            spaced,
+            self._name_color(message),
         )
-        prompt = self._cache.get(key)
-        if prompt is None:
-            prompt = self._render_message(message, grouped)
-            self._cache[key] = prompt
+        cached = self._cache.get(message.id)
+        if cached is not None and cached[0] == signature:
+            return Option(cached[1], _option_id(message.id))
+        prompt = self._render_message(message, grouped, spaced)
+        self._cache[message.id] = (signature, prompt)
         return Option(prompt, _option_id(message.id))
+
+    def _name_color(self, message: MessageInfo) -> int | None:
+        store = self.store
+        if store is None or message.guild_id is None:
+            return None
+        return store.role_color(message.guild_id, message.author.id)
 
     def _mentions_me(self, message: MessageInfo) -> bool:
         me = self.view.me_id
@@ -163,7 +195,59 @@ class MessageList(OptionList):
         replied_to_me = message.referenced is not None and message.referenced.author.id == me
         return message.mention_everyone or me in message.mention_ids or replied_to_me
 
-    def _render_message(self, message: MessageInfo, grouped: bool) -> Text:
+    def _author_style(self, message: MessageInfo) -> Style:
+        color = self._name_color(message)
+        if color:
+            return Style(bold=True, color=f"#{color & 0xFFFFFF:06x}")
+        return Style(bold=True)
+
+    def _avatar(self, message: MessageInfo) -> Text:
+        """The author's avatar, or an initial tile until it loads (or if it cannot)."""
+        images = self.images
+        if images is not None:
+            url = avatar_url(message.author, message.member, message.guild_id, AVATAR_PIXELS)
+            self._track(url, message.id)
+            key = ImageKey(url, AVATAR_COLS, AVATAR_ROWS, self.view.background, exact=True)
+            rendered = images.get(key)
+            if rendered is not None:
+                return rendered.frame()
+        initial = (message.author_name[:1] or "?").upper()
+        style = self.view.avatar_style
+        return Text(f" {initial}  \n    ", style=style, no_wrap=True)
+
+    @property
+    def _avatar_column(self) -> bool:
+        view = self.view
+        images = self.images
+        return (
+            view.density == "cozy" and view.show_avatars and images is not None and images.enabled
+        )
+
+    def _track(self, url: str, message_id: str) -> None:
+        self._image_owners.setdefault(url, set()).add(message_id)
+
+    def _render_message(self, message: MessageInfo, grouped: bool, spaced: bool) -> RenderableType:
+        view = self.view
+        body = self._body(message, grouped)
+        if self._avatar_column:
+            avatar = None if grouped else self._avatar(message)
+            grid = Table.grid(padding=(0, 1), expand=True)
+            grid.add_column(width=AVATAR_COLS, no_wrap=True)
+            grid.add_column(ratio=1)
+            grid.add_row(avatar or Text(" " * AVATAR_COLS), body)
+            content: RenderableType = grid
+        else:
+            content = body
+        style = ""
+        if self._mentions_me(message):
+            style = view.mention_style
+        if message.pending and not message.failed:
+            style = f"{style} dim".strip()
+        if style:
+            content = Styled(content, style)
+        return Padding(content, (1, 0, 0, 0)) if spaced else content
+
+    def _body(self, message: MessageInfo, grouped: bool) -> Text:
         view, glyphs = self.view, icons(self.view.ascii_only)
         text = Text()
         if message.referenced is not None:
@@ -176,14 +260,14 @@ class MessageList(OptionList):
         if view.density == "compact":
             if view.show_timestamps:
                 text.append(time_text + " ", style="dim")
-            text.append(message.author_name, style="bold")
+            text.append(message.author_name, style=self._author_style(message))
             text.append(": ")
             text.append_text(body)
             if edited:
                 text.append(" " + edited, style="dim")
         else:
             if not grouped:
-                text.append(message.author_name, style="bold")
+                text.append(message.author_name, style=self._author_style(message))
                 if view.show_timestamps:
                     text.append("  " + time_text, style="dim")
                 text.append("\n")
@@ -201,11 +285,19 @@ class MessageList(OptionList):
         if message.failed:
             text.stylize("red")
             text.append("\n" + _("(failed — press R to retry)"), style="bold red")
-        elif message.pending:
-            text.stylize("dim")
-        if self._mentions_me(message):
-            text.stylize(view.mention_style)
         return text
+
+    def images_ready(self, urls: set[str]) -> None:
+        """Re-render the messages showing any of ``urls``."""
+        owners: set[str] = set()
+        for url in urls:
+            owners |= self._image_owners.get(url, set())
+        for position, message in enumerate(self.messages):
+            if message.id in owners:
+                self._cache.pop(message.id, None)
+                previous = self.messages[position - 1] if position else None
+                option = self._option(message, previous)
+                self.replace_option_prompt(option.id or "", option.prompt)
 
     # ----- queries ---------------------------------------------------------------------------
 

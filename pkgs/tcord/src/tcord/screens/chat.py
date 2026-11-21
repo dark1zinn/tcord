@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
@@ -233,6 +233,7 @@ class ChatScreen(Screen):
     def images_ready(self, urls: set[str]) -> None:
         """Redraw whatever shows one of the freshly loaded images."""
         self.query_one(ServerRail).images_ready(urls)
+        self.query_one(MessageList).images_ready(urls)
 
     def open_channel(self, channel_id: str) -> None:
         store = self.tcord.store
@@ -316,6 +317,9 @@ class ChatScreen(Screen):
             ascii_only=appearance.ascii_only,
             me_id=me.id if me else None,
             mention_style=f"on {mention.hex}",
+            show_avatars=appearance.show_avatars,
+            background=background.rgb,
+            avatar_style=f"bold on {theme.panel or '#1e1f22'}",
         )
 
     def _show_history(self, *, keep_position: bool = False) -> None:
@@ -324,15 +328,30 @@ class ChatScreen(Screen):
         store = self.tcord.store
         channel = store.channels.get(self.active_channel)
         label = channel_title(channel, store.me) if channel else ""
-        self.query_one(MessageList).show(
-            store.history_state(self.active_channel),
+        messages = self.query_one(MessageList)
+        messages.store, messages.images = store, self.tcord.images
+        history = store.history_state(self.active_channel)
+        messages.show(
+            history,
             label,
             self._view_options(),
             self._render_context(),
             keep_position=keep_position,
         )
+        if history is not None:
+            self._request_authors(history.messages)
         if not keep_position:
             self._schedule_ack()
+
+    def _request_authors(self, messages: Iterable[MessageInfo]) -> None:
+        """Ask for members missing from the cache (their nicknames and role colours)."""
+        guild_id = self.active_guild
+        if guild_id is None:
+            return
+        authors = [message.author.id for message in messages if not message.pending]
+        missing = self.tcord.store.missing_members(guild_id, authors)
+        if missing:
+            self.tcord.client.gateway.request_members(guild_id, missing)
 
     @work(exclusive=True, group="history", exit_on_error=False)
     async def _fetch_history(self, channel_id: str) -> None:
