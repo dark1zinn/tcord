@@ -264,6 +264,9 @@ msgstr "Idioma"
 msgid "Layout"
 msgstr "Layout"
 
+msgid "Let kitty images through tmux"
+msgstr "Deixar as imagens do kitty passarem pelo tmux"
+
 msgid "Load more posts…"
 msgstr "Carregar mais publicações…"
 
