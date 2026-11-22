@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from dataclasses import replace
 
+import pytest
 from client.cdn import attachment_preview_url, avatar_url, emoji_url, guild_icon_url, sticker_url
 from client.models import (
     Attachment,
@@ -19,7 +20,7 @@ from client.models import (
     StickerFormat,
 )
 from conftest import settle, wait_until
-from fakes import FRIEND, GENERAL, GUILD_ID, ME, OTHER, RANDOM, FakeClient, make_message
+from fakes import FRIEND, GENERAL, GUILD_ID, ME, OTHER, RANDOM, FakeClient, FakeTmux, make_message
 from PIL import Image
 from rich.console import Console
 from rich.padding import Padding
@@ -29,6 +30,7 @@ from tcord.app import TcordApp
 from tcord.images import PLACEHOLDER, fit
 from tcord.screens.chat import ChatScreen
 from tcord.settings import AppearanceSettings, Settings
+from tcord.terminal import Tmux
 from tcord.widgets.messages import MessageList
 from tcord.widgets.rail import ServerRail
 from textual.pilot import Pilot
@@ -328,3 +330,39 @@ async def open_general_with(
     await wait_until(pilot, lambda: len(messages.messages) == count)
     await settle(pilot)
     return chat, messages
+
+
+@pytest.mark.parametrize(("opt_in", "expected"), [(True, "kitty"), (False, "halfblock")])
+async def test_tmux_in_kitty_uses_kitty_with_passthrough(
+    monkeypatch: pytest.MonkeyPatch, opt_in: bool, expected: str
+) -> None:
+    monkeypatch.setenv("TERM", "tmux-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    fake = FakeTmux()
+    settings = Settings(appearance=AppearanceSettings(tmux_passthrough=opt_in))
+    app = TcordApp(FakeClient(), settings, tmux=Tmux("%1", fake))
+    assert app.images.protocol == expected
+    assert app.images.tmux
+    assert fake.pane_value == ("on" if opt_in else "")
+    async with app.run_test(size=(120, 36)) as pilot:
+        await chat_screen(app, pilot)
+        # Turning the option off in settings hands the pane back and drops to half blocks.
+        off = replace(settings.appearance, tmux_passthrough=False)
+        app.apply_settings(replace(settings, appearance=off))
+        assert app.images.protocol == "halfblock"
+        assert fake.pane_value == ""
+
+
+async def test_switching_to_kitty_redraws_loaded_images() -> None:
+    client = FakeClient()
+    for user in (ME, FRIEND):
+        client.media.files[avatar_url(user, None, GUILD_ID, 64)] = png((0, 200, 0))
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        header = make_message(30)
+        await wait_until(pilot, lambda: "▀▀▀▀" in prompt_text(messages, header.id))
+        kitty = replace(HALFBLOCK.appearance, image_protocol="kitty")
+        app.apply_settings(replace(HALFBLOCK, appearance=kitty))
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, header.id))
+        assert "▀" not in prompt_text(messages, header.id)

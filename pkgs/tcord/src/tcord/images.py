@@ -31,6 +31,7 @@ from rich.style import Style
 from rich.text import Text
 
 from ._diacritics import DIACRITICS
+from .terminal import wrap_for_tmux
 
 log = logging.getLogger(__name__)
 
@@ -52,28 +53,40 @@ class ImageProtocol(StrEnum):
     OFF = "off"
 
 
-def detect_protocol(env: Mapping[str, str] | None = None) -> ImageProtocol:
-    """Best renderer for the current terminal (never ``AUTO``)."""
+def detect_protocol(
+    env: Mapping[str, str] | None = None, *, tmux_kitty: bool = False
+) -> ImageProtocol:
+    """Best renderer for the current terminal (never ``AUTO``).
+
+    ``tmux_kitty`` says that Tcord runs in tmux, the attached terminal has kitty graphics
+    and the pane passes them through (see :mod:`tcord.terminal`).
+    """
     env = os.environ if env is None else env
     term = env.get("TERM", "")
     program = env.get("TERM_PROGRAM", "").lower()
     if "NO_COLOR" in env or term in ("", "dumb", "linux"):
         return ImageProtocol.OFF
-    # Placeholders need the terminal itself; tmux/screen would have to forward the uploads.
-    multiplexed = "TMUX" in env or term.startswith("screen")
+    if "TMUX" in env:
+        # TERM and KITTY_WINDOW_ID describe tmux (or the shell that started it), not the
+        # terminal attached now.
+        return ImageProtocol.KITTY if tmux_kitty else ImageProtocol.HALFBLOCK
+    if term.startswith("screen"):
+        return ImageProtocol.HALFBLOCK  # GNU screen cannot forward the uploads
     kitty = term == "xterm-kitty" or "KITTY_WINDOW_ID" in env
     ghostty = program == "ghostty" or term == "xterm-ghostty" or "GHOSTTY_RESOURCES_DIR" in env
-    if (kitty or ghostty) and not multiplexed:
-        return ImageProtocol.KITTY
-    return ImageProtocol.HALFBLOCK
+    return ImageProtocol.KITTY if kitty or ghostty else ImageProtocol.HALFBLOCK
 
 
-def resolve_protocol(setting: str, env: Mapping[str, str] | None = None) -> ImageProtocol:
+def resolve_protocol(
+    setting: str, env: Mapping[str, str] | None = None, *, tmux_kitty: bool = False
+) -> ImageProtocol:
     try:
         protocol = ImageProtocol(setting)
     except ValueError:
         protocol = ImageProtocol.AUTO
-    return detect_protocol(env) if protocol is ImageProtocol.AUTO else protocol
+    if protocol is ImageProtocol.AUTO:
+        return detect_protocol(env, tmux_kitty=tmux_kitty)
+    return protocol
 
 
 def fit(width: int, height: int, max_cols: int, max_rows: int) -> tuple[int, int]:
@@ -243,11 +256,14 @@ class ImageStore:
         *,
         write: Callable[[str], None] | None = None,
         on_ready: Callable[[str], None] | None = None,
+        tmux: bool = False,
     ) -> None:
         self.fetch = fetch
         self.protocol = protocol
         self.write = write or (lambda _data: None)
         self.on_ready = on_ready or (lambda _url: None)
+        #: Wrap kitty commands so tmux passes them through to the outer terminal.
+        self.tmux = tmux
         self._cache: OrderedDict[ImageKey, RenderedImage] = OrderedDict()
         self._loading: dict[ImageKey, asyncio.Task[None]] = {}
         self._failed: set[ImageKey] = set()
@@ -331,7 +347,7 @@ class ImageStore:
         kitty_frames = []
         for data, seconds in zip(prepared.pngs, prepared.seconds, strict=True):
             image_id = self._allocate_id()
-            self.write(kitty_upload(image_id, data, prepared.cols, prepared.rows))
+            self._write(kitty_upload(image_id, data, prepared.cols, prepared.rows))
             self._uploaded.add(image_id)
             kitty_frames.append(Frame(placeholder(image_id, prepared.cols, prepared.rows), seconds))
         return RenderedImage(tuple(kitty_frames), prepared.cols, prepared.rows)
@@ -341,13 +357,16 @@ class ImageStore:
         self._next_id = self._next_id % 0xFFFFFF + 1
         return image_id
 
+    def _write(self, sequence: str) -> None:
+        self.write(wrap_for_tmux(sequence) if self.tmux else sequence)
+
     def clear(self) -> None:
         """Forget everything (logout, protocol change) and free terminal-side images."""
         for task in self._loading.values():
             task.cancel()
         self._loading.clear()
         for image_id in self._uploaded:
-            self.write(kitty_delete(image_id))
+            self._write(kitty_delete(image_id))
         self._uploaded.clear()
         self._cache.clear()
         self._failed.clear()

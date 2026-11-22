@@ -328,6 +328,7 @@ class ChatScreen(Screen):
             animate_media=appearance.animate_media and not appearance.reduced_motion,
             background=background.rgb,
             avatar_style=f"bold on {theme.panel or '#1e1f22'}",
+            image_protocol=self.tcord.images.protocol,
         )
 
     def _show_history(self, *, keep_position: bool = False) -> None:

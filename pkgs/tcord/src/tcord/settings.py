@@ -46,6 +46,8 @@ class AppearanceSettings:
     show_images: bool = True
     #: Play GIFs and animated emoji/stickers on the highlighted message.
     animate_media: bool = True
+    #: Inside tmux, allow kitty graphics passthrough for Tcord's pane while it runs.
+    tmux_passthrough: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +123,7 @@ _SECTIONS: dict[str, tuple[type, dict[str, _Check]]] = {
             "show_avatars": _is_bool,
             "show_images": _is_bool,
             "animate_media": _is_bool,
+            "tmux_passthrough": _is_bool,
         },
     ),
     "layout": (

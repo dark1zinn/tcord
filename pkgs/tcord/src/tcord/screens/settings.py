@@ -143,6 +143,10 @@ class SettingsScreen(ModalScreen[Settings | None]):
                         _("Animate the highlighted message"),
                         Switch(appearance.animate_media, id="animate_media"),
                     )
+                    yield _row(
+                        _("Let kitty images through tmux"),
+                        Switch(appearance.tmux_passthrough, id="tmux_passthrough"),
+                    )
                 with TabPane(_("Navigation"), id="tab-navigation"):
                     yield _row(
                         _("Key preset"),
@@ -211,6 +215,7 @@ class SettingsScreen(ModalScreen[Settings | None]):
                 show_avatars=switch("show_avatars"),
                 show_images=switch("show_images"),
                 animate_media=switch("animate_media"),
+                tmux_passthrough=switch("tmux_passthrough"),
             ),
             layout=replace(
                 current.layout,

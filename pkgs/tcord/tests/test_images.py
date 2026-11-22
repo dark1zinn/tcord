@@ -49,9 +49,29 @@ def test_detect_protocol(env: dict[str, str], expected: ImageProtocol) -> None:
     assert detect_protocol(env) is expected
 
 
+def test_tmux_uses_the_attached_terminal() -> None:
+    inside = {"TERM": "tmux-256color", "TMUX": "/tmp/t", "KITTY_WINDOW_ID": "1"}
+    assert detect_protocol(inside) is ImageProtocol.HALFBLOCK
+    assert detect_protocol(inside, tmux_kitty=True) is ImageProtocol.KITTY
+    assert resolve_protocol("auto", inside, tmux_kitty=True) is ImageProtocol.KITTY
+
+
 def test_explicit_setting_overrides_detection() -> None:
     assert resolve_protocol("halfblock", {"TERM": "xterm-kitty"}) is ImageProtocol.HALFBLOCK
     assert resolve_protocol("bogus", {"TERM": "xterm-kitty"}) is ImageProtocol.KITTY
+
+
+async def test_kitty_uploads_are_wrapped_inside_tmux() -> None:
+    written: list[str] = []
+
+    async def fetch(url: str) -> bytes:
+        return png_bytes(4, 4, (1, 2, 3, 255))
+
+    store = ImageStore(fetch, ImageProtocol.KITTY, write=written.append, tmux=True)
+    store.get(ImageKey("https://cdn.discordapp.com/a.png", 2, 1, exact=True))
+    await store.settled()
+    assert written
+    assert all(chunk.startswith("\x1bPtmux;\x1b\x1b_G") for chunk in written)
 
 
 @pytest.mark.parametrize(

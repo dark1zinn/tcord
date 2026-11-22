@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -328,3 +328,30 @@ class FakeClient:
 
     def close(self) -> None:
         self.closed = True
+
+
+class FakeTmux:
+    """Answers the tmux commands Tcord runs (``Tmux`` runner) and records every ``set``."""
+
+    def __init__(self, client: str = "xterm-kitty kitty(0.49.2)", pane_value: str = "") -> None:
+        self.client = client
+        self.global_value = "off"
+        self.pane_value = pane_value
+        self.sets: list[tuple[str, ...]] = []
+        self.fail_sets = False
+
+    def __call__(self, args: Sequence[str]) -> str | None:
+        command = tuple(args[1:])
+        if command[0] == "display-message":
+            return self.client
+        if command[0] == "show":
+            if command[1] == "-Apv":
+                return self.pane_value or self.global_value
+            return self.pane_value
+        if command[0] == "set":
+            if self.fail_sets:
+                return None
+            self.sets.append(command)
+            self.pane_value = "" if command[1] == "-pu" else command[-1]
+            return ""
+        raise AssertionError(f"unexpected tmux command {args}")

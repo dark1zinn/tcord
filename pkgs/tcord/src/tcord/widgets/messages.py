@@ -60,6 +60,8 @@ class ViewOptions:
     background: tuple[int, int, int] = (49, 51, 56)
     #: Placeholder tile for avatars that are not (yet) loaded.
     avatar_style: str = "bold on #4e5058"
+    #: Active image renderer; switching it must re-render every cached message.
+    image_protocol: str = "off"
 
 
 def _option_id(message_id: str) -> str:

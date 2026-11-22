@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Iterable
 from dataclasses import replace
 from pathlib import Path
@@ -16,7 +17,7 @@ from textual.screen import Screen
 
 from . import errors
 from .i18n import _
-from .images import ImageStore, resolve_protocol
+from .images import ImageProtocol, ImageStore, resolve_protocol
 from .keymap import GLOBAL_PRIORITY, Keymap
 from .screens.chat import ChatScreen
 from .screens.confirm import ConfirmScreen
@@ -25,6 +26,7 @@ from .screens.login import LoginScreen
 from .screens.settings import SettingsScreen
 from .settings import PRESETS, Settings, SettingsFile, SettingsLockedError
 from .switcher import ChannelSwitcherProvider
+from .terminal import Tmux
 from .theme import register_themes
 
 
@@ -45,6 +47,7 @@ class TcordApp(App):
         settings: Settings | None = None,
         settings_file: SettingsFile | None = None,
         warnings: list[str] | None = None,
+        tmux: Tmux | None = None,
     ) -> None:
         super().__init__()
         self.client = client
@@ -60,11 +63,13 @@ class TcordApp(App):
         self._connecting = False
         self._persist_warned = False
         self._ready_images: set[str] = set()
+        self.tmux = tmux
         self.images = ImageStore(
             client.media.fetch,
-            resolve_protocol(self.settings.appearance.image_protocol),
+            self._image_protocol(self.settings),
             write=self._write_terminal,
             on_ready=self._image_ready,
+            tmux=tmux is not None,
         )
 
     # ----- lifecycle -------------------------------------------------------------------------
@@ -204,7 +209,7 @@ class TcordApp(App):
             self.theme = "tcord-dark"
         self.animation_level = "none" if appearance.reduced_motion else "full"
         self.set_class(appearance.ascii_only, "-ascii")
-        protocol = resolve_protocol(appearance.image_protocol)
+        protocol = self._image_protocol(settings)
         if protocol is not self.images.protocol:
             self.images.clear()
             self.images.protocol = protocol
@@ -215,6 +220,25 @@ class TcordApp(App):
         self.set_keymap(self._priority_keymap())
         if self.chat_screen is not None and self.chat_screen.is_mounted:
             self.chat_screen.apply_settings()
+
+    def _image_protocol(self, settings: Settings) -> ImageProtocol:
+        """The renderer for ``settings``, turning tmux passthrough on or off as needed."""
+        appearance = settings.appearance
+        tmux = self.tmux
+        if tmux is None:
+            return resolve_protocol(appearance.image_protocol)
+        kitty_outside = tmux.outer_supports_kitty()
+        wants_kitty = appearance.image_protocol in (ImageProtocol.AUTO, ImageProtocol.KITTY)
+        if appearance.tmux_passthrough and kitty_outside and wants_kitty:
+            passthrough = tmux.enable_passthrough()
+        else:
+            tmux.restore_passthrough()
+            passthrough = tmux.passthrough()
+        # The pane is in tmux even when a launcher dropped TMUX from the environment.
+        env = {**os.environ, "TMUX": os.environ.get("TMUX", "1")}
+        return resolve_protocol(
+            appearance.image_protocol, env, tmux_kitty=kitty_outside and passthrough
+        )
 
     # ----- images ----------------------------------------------------------------------------
 
