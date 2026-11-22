@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from client.errors import InvalidInputError, NotFoundError, PermissionDeniedError, TcordError
 from PIL import Image, ImageSequence
 from rich.color import Color
 from rich.style import Style
@@ -42,6 +43,14 @@ MIN_FRAME_SECONDS = 0.125  # cap animations at 8 fps
 #: Approximate pixels per cell used when uploading to kitty (it rescales to the cell box).
 KITTY_CELL_PX = (10, 20)
 CACHE_SIZE = 400
+#: Largest source canvas decoded (width x height); bigger images are refused.
+MAX_SOURCE_PIXELS = 4096 * 4096
+#: Images decoded concurrently (each decode runs in a worker thread).
+DECODERS = 2
+#: Transient failures (network, rate limits) retry with exponential backoff.
+RETRY_SECONDS = 5.0
+MAX_RETRY_SECONDS = 300.0
+MAX_ATTEMPTS = 5
 
 type RGB = tuple[int, int, int]
 
@@ -155,6 +164,9 @@ def decode(
 
     with Image.open(io.BytesIO(data)) as source:
         size = source.size
+        if size[0] * size[1] > MAX_SOURCE_PIXELS:
+            # Checked before any pixel is decoded: a tiny file can claim a huge canvas.
+            raise ValueError(f"image too large: {size[0]}x{size[1]}")
         if not animate or not getattr(source, "is_animated", False):
             return size, [(shrink(source), 0.0)]
         frames = []
@@ -239,6 +251,10 @@ class _Prepared:
     pngs: tuple[bytes, ...] = ()
 
 
+class _Permanent(Exception):
+    """A fetch failure that retrying cannot fix."""
+
+
 # ----- store -------------------------------------------------------------------------------
 
 
@@ -267,6 +283,11 @@ class ImageStore:
         self._cache: OrderedDict[ImageKey, RenderedImage] = OrderedDict()
         self._loading: dict[ImageKey, asyncio.Task[None]] = {}
         self._failed: set[ImageKey] = set()
+        #: Transient failures: attempts so far and when the next one may start.
+        self._attempts: dict[ImageKey, int] = {}
+        self._retry_at: dict[ImageKey, float] = {}
+        #: Decoding runs in threads; bound how many images are decoded at once.
+        self._decoders = asyncio.Semaphore(DECODERS)
         self._uploaded: set[int] = set()
         self._next_id = 1
 
@@ -286,8 +307,10 @@ class ImageStore:
         if rendered is not None:
             self._cache.move_to_end(key)
             return rendered
-        if key not in self._loading:
-            self._loading[key] = asyncio.get_running_loop().create_task(self._load(key))
+        loop = asyncio.get_running_loop()
+        if key in self._loading or self._retry_at.get(key, 0.0) > loop.time():
+            return None
+        self._loading[key] = loop.create_task(self._load(key))
         return None
 
     def failed(self, key: ImageKey) -> bool:
@@ -298,14 +321,33 @@ class ImageStore:
         while self._loading:
             await asyncio.gather(*self._loading.values(), return_exceptions=True)
 
+    def _retry_later(self, key: ImageKey) -> None:
+        """Back off, then ask the owners to redraw so the next :meth:`get` loads again."""
+        attempts = self._attempts.get(key, 0) + 1
+        self._attempts[key] = attempts
+        if attempts > MAX_ATTEMPTS:
+            self._failed.add(key)
+            return
+        delay = min(RETRY_SECONDS * 2 ** (attempts - 1), MAX_RETRY_SECONDS)
+        loop = asyncio.get_running_loop()
+        self._retry_at[key] = loop.time() + delay
+        loop.call_later(delay, self.on_ready, key.url)
+
     async def _load(self, key: ImageKey) -> None:
         try:
-            data = await self.fetch(key.url)
-            prepared = await asyncio.to_thread(self._prepare, key, data)
+            try:
+                data = await self.fetch(key.url)
+            except (NotFoundError, PermissionDeniedError, InvalidInputError) as error:
+                raise _Permanent from error  # gone, forbidden, or refused: retrying won't help
+            async with self._decoders:
+                prepared = await asyncio.to_thread(self._prepare, key, data)
             rendered = self._finish(prepared)
-        except Exception as error:  # any fetch/decode failure just hides the image
+        except Exception as error:
             log.debug("image %s failed: %s", key.url, error)
-            self._failed.add(key)
+            if isinstance(error, TcordError):
+                self._retry_later(key)  # network trouble, rate limits: try again later
+            else:
+                self._failed.add(key)  # undecodable, too large, or permanently unavailable
             return
         finally:
             # A cancelled load (clear()) must not drop the bookkeeping of its replacement.
@@ -316,6 +358,8 @@ class ImageStore:
             # Kitty images stay uploaded: already-drawn prompts may still reference them, and
             # the terminal evicts old images under its own storage quota. clear() frees them.
             self._cache.popitem(last=False)
+        self._attempts.pop(key, None)
+        self._retry_at.pop(key, None)
         self.on_ready(key.url)
 
     def _prepare(self, key: ImageKey, data: bytes) -> _Prepared:
@@ -370,3 +414,5 @@ class ImageStore:
         self._uploaded.clear()
         self._cache.clear()
         self._failed.clear()
+        self._attempts.clear()
+        self._retry_at.clear()

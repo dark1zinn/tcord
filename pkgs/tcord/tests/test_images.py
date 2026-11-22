@@ -1,12 +1,16 @@
 import asyncio
 import io
+import time
+import types
 
 import pytest
+from client.errors import InvalidInputError, NetworkError, NotFoundError
 from PIL import Image
 from rich.cells import cell_len
 from rich.style import Style
 from tcord._diacritics import DIACRITICS
 from tcord.images import (
+    DECODERS,
     PLACEHOLDER,
     ImageKey,
     ImageProtocol,
@@ -237,3 +241,70 @@ async def test_off_protocol_never_fetches() -> None:
     assert store.get(ImageKey("https://cdn.discordapp.com/a.png", 4, 4)) is None
     await store.settled()
     assert calls == []
+
+
+async def test_transient_failures_retry_after_a_backoff() -> None:
+    attempts = 0
+
+    async def fetch(url: str) -> bytes:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise NetworkError("offline")
+        return png_bytes(4, 4, (1, 2, 3, 255))
+
+    store = ImageStore(fetch, ImageProtocol.HALFBLOCK)
+    key = ImageKey("https://cdn.discordapp.com/a.png", 4, 2)
+    loop = asyncio.get_running_loop()
+    store.get(key)
+    await store.settled()
+    assert not store.failed(key)
+    assert store.get(key) is None  # still backing off: no new request
+    assert attempts == 1
+    store._retry_at[key] = loop.time()  # the backoff elapsed
+    store.get(key)
+    await store.settled()
+    assert store.get(key) is not None
+    assert attempts == 2
+
+
+@pytest.mark.parametrize("error", [NotFoundError("gone"), InvalidInputError("media too large")])
+async def test_permanent_fetch_failures_are_not_retried(error: Exception) -> None:
+    async def fetch(url: str) -> bytes:
+        raise error
+
+    store = ImageStore(fetch, ImageProtocol.HALFBLOCK)
+    key = ImageKey("https://cdn.discordapp.com/a.png", 4, 2)
+    store.get(key)
+    await store.settled()
+    assert store.failed(key)
+
+
+def test_oversized_canvas_is_refused_before_decoding() -> None:
+    with pytest.raises(ValueError, match="too large"):
+        decode(png_bytes(5000, 4000, (0, 0, 0, 255)), animate=False, limit=(10, 10))
+
+
+async def test_decoding_is_bounded() -> None:
+    running = peak = 0
+    original = ImageStore._prepare
+
+    def prepare(self: ImageStore, key: ImageKey, data: bytes) -> object:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        try:
+            time.sleep(0.05)
+            return original(self, key, data)
+        finally:
+            running -= 1
+
+    async def fetch(url: str) -> bytes:
+        return png_bytes(4, 4, (1, 2, 3, 255))
+
+    store = ImageStore(fetch, ImageProtocol.HALFBLOCK)
+    store._prepare = types.MethodType(prepare, store)  # type: ignore[method-assign]
+    for index in range(6):
+        store.get(ImageKey(f"https://cdn.discordapp.com/{index}.png", 4, 2))
+    await store.settled()
+    assert peak == DECODERS
