@@ -424,3 +424,41 @@ async def test_switching_to_kitty_redraws_loaded_images() -> None:
         app.apply_settings(replace(HALFBLOCK, appearance=kitty))
         await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, header.id))
         assert "▀" not in prompt_text(messages, header.id)
+
+
+async def test_evicted_kitty_images_reload_only_on_screen() -> None:
+    client = FakeClient()
+    history = client.messages.histories[GENERAL]
+    first, last = history[0], history[-1]
+    for position, message, name in ((0, first, "old"), (len(history) - 1, last, "new")):
+        attachment = Attachment(
+            f"{name}.png",
+            f"https://cdn.discordapp.com/attachments/1/2/{name}.png",
+            10,
+            content_type="image/png",
+            width=100,
+            height=50,
+        )
+        history[position] = replace(message, attachments=(attachment,))
+        cols, rows = fit(100, 50, 40, 15)
+        client.media.files[attachment_preview_url(attachment, cols * 10, rows * 20)] = png(
+            (9, 9, 9)
+        )
+    kitty = Settings(appearance=AppearanceSettings(image_protocol="kitty", show_avatars=False))
+    app = TcordApp(client, kitty)
+    async with app.run_test(size=(120, 30)) as pilot:
+        _, messages = await open_general(app, pilot)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, last.id))
+        await app.images.settled()
+        await settle(pilot)
+        requests = len(client.media.requests)
+        urls = {url for url in messages._image_owners if "/attachments/" in url}
+        for key in [key for key in app.images._cache if key.url in urls]:
+            del app.images._cache[key]  # as if the budget pushed them out of the terminal
+        app.images.on_evicted(urls)
+        await settle(pilot)
+        await app.images.settled()
+        await settle(pilot)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, last.id))
+        assert "old.png" in prompt_text(messages, first.id)  # off screen: file line, no reload
+        assert len(client.media.requests) == requests + 1  # only the visible one

@@ -162,6 +162,9 @@ class MessageList(OptionList):
         self._animating: str | None = None
         self._animation_start = 0.0
         self._animation_timer: Timer | None = None
+        #: Messages whose kitty images were evicted; they reload once on screen again.
+        self._stale: set[str] = set()
+        self._defer_loads = False
 
     # ----- building --------------------------------------------------------------------------
 
@@ -187,6 +190,7 @@ class MessageList(OptionList):
         self._image_owners = {
             url: owners & current for url, owners in self._image_owners.items() if owners & current
         }
+        self._stale.clear()  # every message is rendered (and its images loaded) below
         options = [self._sentinel()]
         previous: MessageInfo | None = None
         for message in self.messages:
@@ -242,6 +246,7 @@ class MessageList(OptionList):
     def _forget(self, message_id: str) -> None:
         """Drop the cached prompt and image ownership of a message no longer listed."""
         self._cache.pop(message_id, None)
+        self._stale.discard(message_id)
         for url in [url for url, owners in self._image_owners.items() if message_id in owners]:
             owners = self._image_owners[url]
             owners.discard(message_id)
@@ -347,10 +352,10 @@ class MessageList(OptionList):
         self._track(url, message_id)
         animate = animated and view.animate_media and message_id == self._animating
         key = ImageKey(url, max_cols, max_rows, view.background, animate=animate, exact=exact)
-        rendered = images.get(key)
+        rendered = images.get(key, load=not self._defer_loads)
         if rendered is None and animate:
             # Until the animated version is decoded, keep showing the still image.
-            rendered = images.get(replace(key, animate=False))
+            rendered = images.get(replace(key, animate=False), load=not self._defer_loads)
         if rendered is None:
             return None
         if not rendered.animated:
@@ -561,10 +566,54 @@ class MessageList(OptionList):
 
     def images_ready(self, urls: set[str]) -> None:
         """Re-render the messages showing any of ``urls``."""
+        self._rerender(self._owners(urls))
+
+    def images_evicted(self, urls: set[str]) -> None:
+        """``urls`` left the terminal: redraw their messages without reloading off-screen ones.
+
+        Owners fall back to text (or initials) right away; those on screen reload at once and
+        the others when they scroll into view.
+        """
+        owners = self._owners(urls)
+        if not owners:
+            return
+        self._stale |= owners
+        self._defer_loads = True
+        try:
+            self._rerender(owners)
+        finally:
+            self._defer_loads = False
+        self.call_after_refresh(self._reload_visible)
+
+    def _owners(self, urls: set[str]) -> set[str]:
         owners: set[str] = set()
         for url in urls:
             owners |= self._image_owners.get(url, set())
-        self._rerender(owners)
+        return owners
+
+    def _visible_message_ids(self) -> set[str]:
+        lines = self._lines
+        top = int(self.scroll_offset.y)
+        visible: set[str] = set()
+        for y in range(top, min(top + self.size.height, len(lines))):
+            option_id = self.get_option_at_index(lines[y][0]).id
+            if option_id is not None and option_id.startswith("m"):
+                visible.add(option_id[1:])
+        return visible
+
+    def _reload_visible(self) -> None:
+        """Reload the images of evicted messages that are on screen now."""
+        if not self._stale:
+            return
+        due = self._stale & self._visible_message_ids()
+        if due:
+            self._stale -= due
+            self._rerender(due)
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        if self._stale:
+            self.call_after_refresh(self._reload_visible)
 
     def _rerender(self, message_ids: set[str]) -> None:
         if not message_ids:

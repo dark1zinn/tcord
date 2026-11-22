@@ -11,6 +11,7 @@ from rich.style import Style
 from tcord._diacritics import DIACRITICS
 from tcord.images import (
     DECODERS,
+    KITTY_CELL_PX,
     PLACEHOLDER,
     ImageKey,
     ImageProtocol,
@@ -308,3 +309,34 @@ async def test_decoding_is_bounded() -> None:
         store.get(ImageKey(f"https://cdn.discordapp.com/{index}.png", 4, 2))
     await store.settled()
     assert peak == DECODERS
+
+
+async def test_kitty_images_beyond_the_budget_are_deleted_and_reported() -> None:
+    written: list[str] = []
+    evicted: list[set[str]] = []
+    fetches: list[str] = []
+
+    async def fetch(url: str) -> bytes:
+        fetches.append(url)
+        return png_bytes(4, 4, (1, 2, 3, 255))
+
+    one_image = 4 * KITTY_CELL_PX[0] * 2 * KITTY_CELL_PX[1] * 4  # 4x2 cells, RGBA
+    store = ImageStore(
+        fetch,
+        ImageProtocol.KITTY,
+        write=written.append,
+        on_evicted=evicted.append,
+        terminal_budget=one_image,
+    )
+    first = ImageKey("https://cdn.discordapp.com/a.png", 4, 2, exact=True)
+    second = ImageKey("https://cdn.discordapp.com/b.png", 4, 2, exact=True)
+    store.get(first)
+    await store.settled()
+    store.get(second)
+    await store.settled()
+    assert evicted == [{first.url}]
+    assert sum(sequence.count("a=d") for sequence in written) == 1
+    assert store.get(first, load=False) is None  # gone, and not reloaded on its own
+    await store.settled()
+    assert fetches == [first.url, second.url]
+    assert store.get(second) is not None

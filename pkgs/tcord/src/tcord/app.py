@@ -69,6 +69,7 @@ class TcordApp(App):
             self._image_protocol(self.settings),
             write=self._write_terminal,
             on_ready=self._image_ready,
+            on_evicted=self._images_evicted,
             tmux=tmux is not None,
         )
 
@@ -260,6 +261,12 @@ class TcordApp(App):
         urls, self._ready_images = self._ready_images, set()
         if self.chat_screen is not None and self.chat_screen.is_mounted:
             self.chat_screen.images_ready(urls)
+
+    def _images_evicted(self, urls: set[str]) -> None:
+        # Immediately: the terminal already dropped these images, so prompts showing them
+        # would draw blank cells until redrawn.
+        if self.chat_screen is not None and self.chat_screen.is_mounted:
+            self.chat_screen.images_evicted(urls)
 
     def _priority_keymap(self) -> dict[str, str]:
         """Single-key, non-character bindings of global actions (they must work while typing)."""

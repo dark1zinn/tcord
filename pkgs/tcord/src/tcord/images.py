@@ -43,6 +43,8 @@ MIN_FRAME_SECONDS = 0.125  # cap animations at 8 fps
 #: Approximate pixels per cell used when uploading to kitty (it rescales to the cell box).
 KITTY_CELL_PX = (10, 20)
 CACHE_SIZE = 400
+#: Decoded bytes of kitty images Tcord keeps uploaded (kitty's own quota is 320 MB).
+TERMINAL_BUDGET = 192 * 1024 * 1024
 #: Largest source canvas decoded (width x height); bigger images are refused.
 MAX_SOURCE_PIXELS = 4096 * 4096
 #: Images decoded concurrently (each decode runs in a worker thread).
@@ -122,6 +124,9 @@ class RenderedImage:
     frames: tuple[Frame, ...]
     cols: int
     rows: int
+    #: Kitty image ids (one per frame) and the decoded bytes they keep in the terminal.
+    image_ids: tuple[int, ...] = ()
+    terminal_bytes: int = 0
 
     @property
     def animated(self) -> bool:
@@ -272,14 +277,21 @@ class ImageStore:
         *,
         write: Callable[[str], None] | None = None,
         on_ready: Callable[[str], None] | None = None,
+        on_evicted: Callable[[set[str]], None] | None = None,
         tmux: bool = False,
+        terminal_budget: int = TERMINAL_BUDGET,
     ) -> None:
         self.fetch = fetch
         self.protocol = protocol
         self.write = write or (lambda _data: None)
         self.on_ready = on_ready or (lambda _url: None)
+        self.on_evicted = on_evicted or (lambda _urls: None)
         #: Wrap kitty commands so tmux passes them through to the outer terminal.
         self.tmux = tmux
+        #: Decoded bytes of kitty images kept in the terminal; the oldest are deleted beyond
+        #: this (kitty itself would silently drop images past its own quota).
+        self.terminal_budget = terminal_budget
+        self._resident = 0
         self._cache: OrderedDict[ImageKey, RenderedImage] = OrderedDict()
         self._loading: dict[ImageKey, asyncio.Task[None]] = {}
         self._failed: set[ImageKey] = set()
@@ -300,7 +312,8 @@ class ImageStore:
         """Whether tiny inline images (emoji in text) are legible."""
         return self.protocol is ImageProtocol.KITTY
 
-    def get(self, key: ImageKey) -> RenderedImage | None:
+    def get(self, key: ImageKey, *, load: bool = True) -> RenderedImage | None:
+        """The rendered image, else ``None``; starts loading it unless ``load`` is false."""
         if not self.enabled or key in self._failed:
             return None
         rendered = self._cache.get(key)
@@ -308,9 +321,9 @@ class ImageStore:
             self._cache.move_to_end(key)
             return rendered
         loop = asyncio.get_running_loop()
-        if key in self._loading or self._retry_at.get(key, 0.0) > loop.time():
-            return None
-        self._loading[key] = loop.create_task(self._load(key))
+        blocked = key in self._loading or self._retry_at.get(key, 0.0) > loop.time()
+        if load and not blocked:
+            self._loading[key] = loop.create_task(self._load(key))
         return None
 
     def failed(self, key: ImageKey) -> bool:
@@ -354,13 +367,31 @@ class ImageStore:
             if self._loading.get(key) is asyncio.current_task():
                 del self._loading[key]
         self._cache[key] = rendered
-        while len(self._cache) > CACHE_SIZE:
-            # Kitty images stay uploaded: already-drawn prompts may still reference them, and
-            # the terminal evicts old images under its own storage quota. clear() frees them.
-            self._cache.popitem(last=False)
+        self._resident += rendered.terminal_bytes
+        self._evict()
         self._attempts.pop(key, None)
         self._retry_at.pop(key, None)
         self.on_ready(key.url)
+
+    def _evict(self) -> None:
+        """Keep the cache within :data:`CACHE_SIZE` and kitty images within the budget.
+
+        Evicted kitty images are deleted from the terminal, so prompts that still draw them
+        must be redrawn: ``on_evicted`` names their URLs.
+        """
+        evicted: set[str] = set()
+        while len(self._cache) > CACHE_SIZE or (
+            self._resident > self.terminal_budget and len(self._cache) > 1
+        ):
+            key, rendered = self._cache.popitem(last=False)
+            if rendered.image_ids:
+                for image_id in rendered.image_ids:
+                    self._write(kitty_delete(image_id))
+                    self._uploaded.discard(image_id)
+                self._resident -= rendered.terminal_bytes
+                evicted.add(key.url)
+        if evicted:
+            self.on_evicted(evicted)
 
     def _prepare(self, key: ImageKey, data: bytes) -> _Prepared:
         """Decode and scale (worker thread): half-block text or PNGs for kitty."""
@@ -389,12 +420,18 @@ class ImageStore:
             )
             return RenderedImage(frames, prepared.cols, prepared.rows)
         kitty_frames = []
+        ids = []
         for data, seconds in zip(prepared.pngs, prepared.seconds, strict=True):
             image_id = self._allocate_id()
             self._write(kitty_upload(image_id, data, prepared.cols, prepared.rows))
             self._uploaded.add(image_id)
+            ids.append(image_id)
             kitty_frames.append(Frame(placeholder(image_id, prepared.cols, prepared.rows), seconds))
-        return RenderedImage(tuple(kitty_frames), prepared.cols, prepared.rows)
+        # Kitty keeps the decoded RGBA pixels of every frame.
+        pixels = prepared.cols * KITTY_CELL_PX[0] * prepared.rows * KITTY_CELL_PX[1]
+        return RenderedImage(
+            tuple(kitty_frames), prepared.cols, prepared.rows, tuple(ids), pixels * 4 * len(ids)
+        )
 
     def _allocate_id(self) -> int:
         image_id = self._next_id
@@ -412,6 +449,7 @@ class ImageStore:
         for image_id in self._uploaded:
             self._write(kitty_delete(image_id))
         self._uploaded.clear()
+        self._resident = 0
         self._cache.clear()
         self._failed.clear()
         self._attempts.clear()

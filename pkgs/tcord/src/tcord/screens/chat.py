@@ -243,6 +243,11 @@ class ChatScreen(Screen):
         self.query_one(ServerRail).images_ready(urls)
         self.query_one(MessageList).images_ready(urls)
 
+    def images_evicted(self, urls: set[str]) -> None:
+        """Kitty images that left the terminal: redraw what showed them."""
+        self.query_one(ServerRail).images_ready(urls)  # always on screen: reload now
+        self.query_one(MessageList).images_evicted(urls)
+
     def open_channel(self, channel_id: str) -> None:
         store = self.tcord.store
         channel = store.channels.get(channel_id)
