@@ -61,6 +61,45 @@ async fn missing_media_maps_to_not_found() {
 }
 
 #[tokio::test]
+async fn redirects_to_refused_hosts_are_not_followed() {
+    let allowed = MockServer::start().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/away.png"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", format!("{}/x.png", elsewhere.uri())),
+        )
+        .mount(&allowed)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/ok.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"OK".to_vec()))
+        .mount(&allowed)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"LEAK".to_vec()))
+        .expect(0)
+        .mount(&elsewhere)
+        .await;
+    let origin = allowed.address().to_string();
+    let session = session(&allowed, None, HostPolicy::Origins(vec![origin]));
+
+    let error = session
+        .fetch_media(&format!("{}/away.png", allowed.uri()))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, EngineError::Http { status: 302, .. }),
+        "{error:?}"
+    );
+    let direct = session
+        .fetch_media(&format!("{}/ok.png", allowed.uri()))
+        .await;
+    assert_eq!(direct.unwrap(), b"OK");
+}
+
+#[tokio::test]
 async fn thread_search_marks_joined_threads() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

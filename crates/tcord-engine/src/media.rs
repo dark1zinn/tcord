@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 
 use futures_util::StreamExt;
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, redirect};
 use rsa::sha2::{Digest, Sha256};
 
 use crate::error::{EngineError, Result};
@@ -21,6 +21,8 @@ pub const MAX_MEDIA_BYTES: usize = 16 * 1024 * 1024;
 const CACHE_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
 /// Evict after this many writes (scanning the directory is not free).
 const EVICT_EVERY: u32 = 32;
+/// Redirects followed for one download (each target is host-checked).
+const MAX_REDIRECTS: usize = 5;
 /// Signed attachment parameters; they change on every refresh, so they are not part of the key.
 const VOLATILE_PARAMS: [&str; 3] = ["ex", "is", "hm"];
 
@@ -32,6 +34,9 @@ pub enum HostPolicy {
     /// Any host. Only compiled for the engine's own tests (`test-hosts` feature).
     #[cfg(feature = "test-hosts")]
     Any,
+    /// Only these `host:port` origins (`test-hosts` feature).
+    #[cfg(feature = "test-hosts")]
+    Origins(Vec<String>),
 }
 
 impl HostPolicy {
@@ -39,6 +44,11 @@ impl HostPolicy {
         match self {
             #[cfg(feature = "test-hosts")]
             Self::Any => true,
+            #[cfg(feature = "test-hosts")]
+            Self::Origins(origins) => url
+                .host_str()
+                .zip(url.port_or_known_default())
+                .is_some_and(|(host, port)| origins.contains(&format!("{host}:{port}"))),
             Self::Discord => {
                 url.scheme() == "https"
                     && url.host_str().is_some_and(|host| {
@@ -60,10 +70,21 @@ pub struct MediaCache {
 
 impl MediaCache {
     pub fn new(dir: Option<PathBuf>, policy: HostPolicy) -> Result<Self> {
+        // Every hop must pass the same host check as the original URL; a refused redirect is
+        // returned as-is (a 3xx, mapped to an error) without contacting its target.
+        let hops = policy.clone();
+        let redirects = redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() < MAX_REDIRECTS && hops.allows(attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        });
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .user_agent(identity::user_agent())
+            .redirect(redirects)
             .build()
             .map_err(|error| EngineError::Network(error.to_string()))?;
         Ok(Self {
