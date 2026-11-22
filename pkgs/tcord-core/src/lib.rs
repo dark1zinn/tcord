@@ -255,8 +255,8 @@ struct Guild {
     name: String,
     icon: Option<String>,
     owner_id: Option<String>,
-    channels: Vec<Channel>,
-    threads: Vec<Channel>,
+    channels: Option<Vec<Channel>>,
+    threads: Option<Vec<Channel>>,
     roles: Vec<Role>,
     me: Option<Member>,
     unavailable: bool,
@@ -269,8 +269,12 @@ impl From<tcord_engine::Guild> for Guild {
             name: guild.name,
             icon: guild.icon,
             owner_id: guild.owner_id,
-            channels: guild.channels.into_iter().map(Channel::from).collect(),
-            threads: guild.threads.into_iter().map(Channel::from).collect(),
+            channels: guild
+                .channels
+                .map(|channels| channels.into_iter().map(Channel::from).collect()),
+            threads: guild
+                .threads
+                .map(|threads| threads.into_iter().map(Channel::from).collect()),
             roles: guild.roles.into_iter().map(Role::from).collect(),
             me: guild.me.map(Member::from),
             unavailable: guild.unavailable,

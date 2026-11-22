@@ -234,9 +234,23 @@ def test_thread_membership_survives_updates_and_follows_membership_events() -> N
     assert chat.apply(ThreadMembershipChanged("30", GUILD, joined=False)) == []
 
 
-def test_partial_guild_update_keeps_channels() -> None:
-    chat = store_with(text("10"))
-    chat.apply(GuildUpserted(Guild(GUILD, "Renamed")))
+def test_partial_guild_update_keeps_live_channels_and_threads() -> None:
+    thread = Channel("30", ChannelKind.PUBLIC_THREAD, "t", GUILD, parent_id="10")
+    chat = store_with(text("10"), threads=(thread,))
+    chat.apply(ChannelUpserted(replace(text("10"), name="renamed-later")))
+    chat.apply(GuildUpserted(Guild(GUILD, "Renamed")))  # GUILD_UPDATE: no lists
     assert chat.guilds[GUILD].name == "Renamed"
-    assert "10" in chat.channels
+    assert chat.channels["10"].name == "renamed-later"
+    assert "30" in chat.channels
     assert chat.guilds[GUILD].me is not None
+
+
+def test_guild_create_lists_replace_channels_but_keep_joined_threads() -> None:
+    active = Channel("30", ChannelKind.PUBLIC_THREAD, "a", GUILD, parent_id="10")
+    joined = replace(active, id="31", joined=True, thread_metadata=ThreadMetadata(archived=True))
+    chat = store_with(text("10"), text("11"), threads=(active, joined))
+    chat.apply(GuildUpserted(Guild(GUILD, "Guild", channels=(text("11"),), threads=())))
+    assert "10" not in chat.channels  # an explicit list is authoritative, even when shorter
+    assert "11" in chat.channels
+    assert "30" not in chat.channels
+    assert "31" in chat.channels

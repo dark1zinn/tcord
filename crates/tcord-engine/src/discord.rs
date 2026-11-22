@@ -66,8 +66,10 @@ pub struct Guild {
     pub name: String,
     pub icon: Option<String>,
     pub owner_id: Option<String>,
-    pub channels: Vec<Channel>,
-    pub threads: Vec<Channel>,
+    /// `None` when the payload omits the list (GUILD_UPDATE), unlike an empty list.
+    pub channels: Option<Vec<Channel>>,
+    /// Active threads; `None` when omitted.
+    pub threads: Option<Vec<Channel>>,
     pub roles: Vec<Role>,
     /// The signed-in user's membership, when the payload carries it.
     pub me: Option<Member>,
@@ -310,12 +312,21 @@ impl Guild {
                 .unwrap_or_default(),
             icon: str_field(properties, "icon").or_else(|| str_field(value, "icon")),
             owner_id: str_field(properties, "owner_id").or_else(|| str_field(value, "owner_id")),
-            channels: list(value, "channels")
-                .filter_map(|channel| Channel::from_value(channel, Some(&id), &[]).ok())
-                .collect(),
-            threads: list(value, "threads")
-                .filter_map(|thread| Channel::from_value(thread, Some(&id), &[]).ok())
-                .collect(),
+            channels: value
+                .get("channels")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|channel| Channel::from_value(channel, Some(&id), &[]).ok())
+                        .collect()
+                }),
+            threads: value.get("threads").and_then(Value::as_array).map(|items| {
+                items
+                    .iter()
+                    .filter_map(|thread| Channel::from_value(thread, Some(&id), &[]).ok())
+                    .collect()
+            }),
             roles: list(value, "roles")
                 .filter_map(|role| Role::from_value(role).ok())
                 .collect(),

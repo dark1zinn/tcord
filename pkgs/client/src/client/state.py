@@ -170,21 +170,23 @@ class ChatStore:
 
     def _put_guild(self, guild: Guild) -> None:
         previous = self.guilds.get(guild.id)
-        if previous is not None:
-            # GUILD_UPDATE and cached GUILD_CREATE payloads omit unchanged collections.
-            guild = replace(
-                guild,
-                channels=guild.channels or previous.channels,
-                roles=guild.roles or previous.roles,
-                threads=guild.threads or previous.threads,
-                me=guild.me or previous.me,
-            )
-        if guild.channels or previous is None:
-            for channel in self.guild_channels(guild.id, include_threads=True):
+        if guild.channels is not None or previous is None:
+            for channel in self.guild_channels(guild.id):
                 self.channels.pop(channel.id, None)
-            for channel in (*guild.channels, *guild.threads):
+            for channel in guild.channels or ():
                 self._put_channel(replace(channel, guild_id=channel.guild_id or guild.id))
-        self.guilds[guild.id] = guild
+        if guild.threads is not None:
+            # The list holds the active threads; joined (possibly archived) ones stay.
+            for channel in self.guild_channels(guild.id, include_threads=True):
+                if channel.is_thread and not channel.joined:
+                    self.channels.pop(channel.id, None)
+            for thread in guild.threads:
+                self._put_channel(replace(thread, guild_id=thread.guild_id or guild.id))
+        if previous is not None:
+            # GUILD_UPDATE omits roles and our membership when they did not change.
+            guild = replace(guild, roles=guild.roles or previous.roles, me=guild.me or previous.me)
+        # self.channels is the live record; a copy on the guild would only go stale.
+        self.guilds[guild.id] = replace(guild, channels=None, threads=None)
         if guild.me is not None:
             self._remember_member(guild.id, guild.me)
         self._permissions.clear()

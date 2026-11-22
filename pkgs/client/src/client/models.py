@@ -132,14 +132,20 @@ class Member:
 
 @dataclass(frozen=True, slots=True)
 class Guild:
+    """A guild as a payload describes it.
+
+    ``channels`` and ``threads`` are ``None`` when the payload omits them (GUILD_UPDATE); the
+    store keeps the live channels itself and drops these lists once loaded.
+    """
+
     id: str
     name: str
     icon: str | None = None
-    channels: tuple[Channel, ...] = ()
+    channels: tuple[Channel, ...] | None = None
     roles: tuple[Role, ...] = ()
     unavailable: bool = False
     owner_id: str | None = None
-    threads: tuple[Channel, ...] = ()
+    threads: tuple[Channel, ...] | None = None
     me: Member | None = None
 
 

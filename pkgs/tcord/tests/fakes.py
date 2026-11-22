@@ -227,7 +227,7 @@ class FakeGateway:
         return list(self.snapshot.guilds)
 
     async def guild_channels(self, guild_id: str) -> list[Channel]:
-        return [c for g in self.snapshot.guilds if g.id == guild_id for c in g.channels]
+        return [c for g in self.snapshot.guilds if g.id == guild_id for c in g.channels or ()]
 
     async def private_channels(self) -> list[Channel]:
         return list(self.snapshot.private_channels)

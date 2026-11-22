@@ -30,7 +30,7 @@ def with_access_rules(client: FakeClient) -> None:
     """@everyone can view; #random denies VIEW_CHANNEL to @everyone; add a forum."""
     guild = client.gateway.snapshot.guilds[0]
     channels = []
-    for channel in guild.channels:
+    for channel in guild.channels or ():
         if channel.id == RANDOM:
             deny = PermissionOverwrite(GUILD_ID, 0, 0, VIEW_CHANNEL)
             channel = replace(channel, permission_overwrites=(deny,))

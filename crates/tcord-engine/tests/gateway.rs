@@ -7,7 +7,7 @@ use flate2::{Compress, Compression, FlushCompress};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tcord_engine::gateway::{GatewayEvent, parse_ready};
-use tcord_engine::{AuthFailure, AuthKind, Session, SessionConfig};
+use tcord_engine::{AuthFailure, AuthKind, Guild, Session, SessionConfig};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -311,7 +311,8 @@ async fn zlib_ready_then_message() {
 
     assert_eq!(ready.user.username, "me");
     assert_eq!(ready.guilds[0].name, "Guild");
-    assert_eq!(ready.guilds[0].channels[0].name.as_deref(), Some("general"));
+    let channels = ready.guilds[0].channels.as_deref().unwrap();
+    assert_eq!(channels[0].name.as_deref(), Some("general"));
     assert_eq!(ready.private_channels[0].recipients[0].username, "friend");
     assert_eq!(ready.read_states[0].mention_count, 1);
     match next_non_status(&session).await {
@@ -510,7 +511,16 @@ fn ready_reads_own_member_permissions_and_threads() {
     assert_eq!(guild.owner_id.as_deref(), Some("9"));
     assert_eq!(guild.me.as_ref().unwrap().roles, ["5"]);
     assert_eq!(guild.roles[0].permissions, 1024);
-    let overwrite = &guild.channels[0].permission_overwrites[0];
+    let channels = guild.channels.as_deref().unwrap();
+    let overwrite = &channels[0].permission_overwrites[0];
     assert_eq!((overwrite.kind, overwrite.deny), (0, 1024));
-    assert!(guild.threads[0].joined);
+    assert!(guild.threads.as_deref().unwrap()[0].joined);
+    // GUILD_UPDATE omits the lists; an omitted list is not an empty one.
+    let update = Guild::parse(
+        &json!({"id": "100", "name": "Renamed", "channels": []}),
+        None,
+    );
+    let update = update.unwrap();
+    assert_eq!(update.channels.as_deref(), Some(&[][..]));
+    assert_eq!(update.threads, None);
 }

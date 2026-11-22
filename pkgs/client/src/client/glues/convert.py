@@ -133,11 +133,11 @@ def guild(native: tcord_core.Guild) -> Guild:
         id=native.id,
         name=native.name,
         icon=native.icon,
-        channels=tuple(channel(item) for item in native.channels),
+        channels=None if native.channels is None else tuple(map(channel, native.channels)),
         roles=tuple(role(item) for item in native.roles),
         unavailable=native.unavailable,
         owner_id=native.owner_id,
-        threads=tuple(channel(item) for item in native.threads),
+        threads=None if native.threads is None else tuple(map(channel, native.threads)),
         me=member(native.me) if native.me is not None else None,
     )
 

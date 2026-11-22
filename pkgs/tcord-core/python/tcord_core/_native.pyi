@@ -81,8 +81,8 @@ class Guild:
     name: str
     icon: str | None
     owner_id: str | None
-    channels: list[Channel]
-    threads: list[Channel]
+    channels: list[Channel] | None
+    threads: list[Channel] | None
     roles: list[Role]
     me: Member | None
     unavailable: bool
