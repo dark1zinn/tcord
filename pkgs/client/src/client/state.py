@@ -15,6 +15,7 @@ from typing import Literal
 from .models import (
     Channel,
     ChannelDeleted,
+    ChannelKind,
     ChannelUpserted,
     ConnectionChanged,
     ConnectionStatus,
@@ -43,7 +44,7 @@ from .models import (
     TypingStarted,
     User,
 )
-from .permissions import VIEW_CHANNEL, channel_permissions
+from .permissions import MANAGE_THREADS, VIEW_CHANNEL, channel_permissions
 
 TYPING_SECONDS = 10.0
 
@@ -292,7 +293,11 @@ class ChatStore:
         if channel is None or channel.guild_id is None or self.me is None:
             return None
         if channel.is_thread and channel.parent_id is not None:
-            return self.permissions(channel.parent_id)
+            inherited = self.permissions(channel.parent_id)
+            private = channel.kind == ChannelKind.PRIVATE_THREAD
+            if inherited is None or not private or channel.joined or inherited & MANAGE_THREADS:
+                return inherited
+            return inherited & ~VIEW_CHANNEL  # only members and thread managers see it
         guild = self.guilds.get(channel.guild_id)
         if guild is None or guild.me is None:
             return None
@@ -468,6 +473,7 @@ class ChatStore:
                 if thread is None or thread.joined == joined:
                     return []
                 self.channels[thread_id] = replace(thread, joined=joined)
+                self._permissions.pop(thread_id, None)  # private threads need membership
                 return [ChannelsChanged(guild_id or thread.guild_id)]
             case ThreadDeleted(thread_id, guild_id, _):
                 self.channels.pop(thread_id, None)

@@ -25,6 +25,7 @@ from client.models import (
 from client.permissions import (
     ADMINISTRATOR,
     ALL,
+    MANAGE_THREADS,
     SEND_MESSAGES,
     VIEW_CHANNEL,
     channel_permissions,
@@ -151,6 +152,20 @@ def test_parent_overwrite_change_updates_thread_access() -> None:
     assert chat.can_view("30")
     chat.apply(ChannelUpserted(text("10", overwrite(GUILD, deny=VIEW_CHANNEL))))
     assert not chat.can_view("30")
+
+
+def test_private_threads_need_membership_or_manage_threads() -> None:
+    private = Channel("31", ChannelKind.PRIVATE_THREAD, "p", GUILD, parent_id="10")
+    chat = store_with(text("10"), threads=(private,))
+    assert not chat.can_view("31")  # the parent is visible, the private thread is not
+    chat.apply(ThreadMembershipChanged("31", GUILD, joined=True))
+    assert chat.can_view("31")
+    chat.apply(ThreadMembershipChanged("31", GUILD, joined=False))
+    assert not chat.can_view("31")
+
+    managers = Role(MODS, "Mods", 0x00FF00, 5, MANAGE_THREADS)
+    chat.apply(RoleUpserted(GUILD, managers))  # the signed-in member has MODS
+    assert chat.can_view("31")
 
 
 def test_inaccessible_unread_does_not_badge_the_guild() -> None:
