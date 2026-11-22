@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from client.cdn import (
     attachment_preview_url,
@@ -12,7 +13,7 @@ from client.cdn import (
     emoji_url,
     sticker_url,
 )
-from client.models import Attachment, Channel, Embed, MessageInfo, StickerFormat
+from client.models import Attachment, Channel, Embed, EmbedMedia, MessageInfo, StickerFormat
 from client.state import ChannelHistory, ChatStore
 from rich.console import Group, RenderableType
 from rich.padding import Padding
@@ -92,6 +93,21 @@ def _animated_hash(image_hash: str | None) -> bool:
     return bool(image_hash and image_hash.startswith("a_"))
 
 
+def _is_gif(media: EmbedMedia | None) -> bool:
+    """Embed media that is a (possibly animated) GIF, judging by its URL."""
+    if media is None:
+        return False
+    urls = (media.url, media.proxy_url)
+    return any(urlsplit(url).path.lower().endswith(".gif") for url in urls if url)
+
+
+def _embed_media(embed: Embed) -> EmbedMedia | None:
+    """The picture an image or GIF embed shows (GIF embeds prefer the thumbnail)."""
+    if embed.kind == "gifv":
+        return embed.thumbnail or embed.image
+    return embed.image or embed.thumbnail
+
+
 def _has_motion(message: MessageInfo) -> bool:
     """Whether any media of the message may animate."""
     member_avatar = message.member.avatar if message.member else None
@@ -104,6 +120,7 @@ def _has_motion(message: MessageInfo) -> bool:
             for sticker in message.stickers
         )
         or any(attachment.content_type == "image/gif" for attachment in message.attachments)
+        or any(_is_gif(_embed_media(embed)) for embed in message.embeds)
     )
 
 
@@ -213,6 +230,7 @@ class MessageList(OptionList):
         while len(self.messages) > limit:
             oldest = self.messages.pop(0)
             self.remove_option(_option_id(oldest.id))
+            self._forget(oldest.id)
             following = self.get_option_at_index(2) if self.option_count > 2 else None
             if following is not None and following.id is None:
                 self.remove_option_at_index(1)  # day divider left without messages
@@ -220,6 +238,15 @@ class MessageList(OptionList):
         self.replace_option_prompt(TOP, self._sentinel().prompt)
         first = self.messages[0]
         self.replace_option_prompt(_option_id(first.id), self._option(first, None).prompt)
+
+    def _forget(self, message_id: str) -> None:
+        """Drop the cached prompt and image ownership of a message no longer listed."""
+        self._cache.pop(message_id, None)
+        for url in [url for url, owners in self._image_owners.items() if message_id in owners]:
+            owners = self._image_owners[url]
+            owners.discard(message_id)
+            if not owners:
+                del self._image_owners[url]
 
     # ----- rendering -------------------------------------------------------------------------
 
@@ -245,6 +272,11 @@ class MessageList(OptionList):
             message.pending,
             message.failed,
             message.member,
+            message.attachments,
+            message.embeds,
+            message.stickers,
+            message.thread,
+            message.referenced,
             grouped,
             spaced,
             self._name_color(message),
@@ -258,9 +290,9 @@ class MessageList(OptionList):
         return Option(prompt, _option_id(message.id))
 
     def _resolved(self, message: MessageInfo) -> MessageInfo:
-        """Fill the guild and member that REST history omits from the store's caches."""
+        """Fill the guild (REST history omits it) and the author's current member data."""
         store = self.store
-        if store is None or message.member is not None:
+        if store is None:
             return message
         guild_id = message.guild_id
         if guild_id is None:
@@ -268,8 +300,10 @@ class MessageList(OptionList):
             guild_id = channel.guild_id if channel is not None else None
         if guild_id is None:
             return message
-        member = store.member(guild_id, message.author.id)
-        if member is None and guild_id == message.guild_id:
+        # The store holds the latest member (role and nickname updates); the copy carried by
+        # the message is only a fallback.
+        member = store.member(guild_id, message.author.id) or message.member
+        if guild_id == message.guild_id and member == message.member:
             return message
         return replace(message, guild_id=guild_id, member=member)
 
@@ -398,11 +432,11 @@ class MessageList(OptionList):
         self, message_id: str, embed: Embed, bar: str, *, hide_gif_link: bool
     ) -> RenderableType | None:
         if embed.kind in ("gifv", "image"):
-            media = embed.thumbnail or embed.image if embed.kind == "gifv" else embed.image
-            media = media or embed.thumbnail
+            media = _embed_media(embed)
             if media is not None:
                 cols, rows = fit(media.width or 4, media.height or 3, *MEDIA_CELLS)
-                image = self._image(message_id, embed_media_url(media), cols, rows)
+                url = embed_media_url(media)
+                image = self._image(message_id, url, cols, rows, animated=_is_gif(media))
                 if image is not None:
                     return image
             if hide_gif_link and embed.url:
@@ -423,11 +457,12 @@ class MessageList(OptionList):
                     lines.append("\n")
                 lines.append(f"{bar} ", style="dim")
                 lines.append_text(line)
-        media = embed.image or embed.thumbnail
+        media = _embed_media(embed)
         picture = None
         if media is not None:
             cols, rows = fit(media.width or 4, media.height or 3, *EMBED_IMAGE_CELLS)
-            picture = self._image(message_id, embed_media_url(media), cols, rows)
+            url = embed_media_url(media)
+            picture = self._image(message_id, url, cols, rows, animated=_is_gif(media))
         if not lines and picture is None:
             return None
         return Group(*(part for part in (lines or None, picture) if part is not None))

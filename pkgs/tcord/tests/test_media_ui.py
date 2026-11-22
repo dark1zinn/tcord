@@ -296,16 +296,23 @@ async def test_highlighted_gif_animates() -> None:
         _, messages = await open_general_with(app, pilot, 31)
         messages.focus()
         messages.highlighted = messages.get_option_index(f"m{message.id}")
-        seen: set[str] = set()
+        frames = FrameCollector(messages, message.id)
+        await wait_until(pilot, lambda: frames.distinct() >= 2, rounds=200)
 
-        def colours() -> bool:
-            prompt = messages.get_option(f"m{message.id}").prompt
-            console = Console(width=80, record=True, color_system="truecolor")
-            console.print(prompt)
-            seen.add(console.export_text(styles=True))
-            return len(seen) >= 2
 
-        await wait_until(pilot, colours, rounds=200)
+class FrameCollector:
+    """Distinct drawn image frames of one message (loading and text-only states don't count)."""
+
+    def __init__(self, messages: MessageList, message_id: str) -> None:
+        self.messages, self.message_id = messages, message_id
+        self.seen: set[str] = set()
+
+    def distinct(self) -> int:
+        console = Console(width=80, record=True, color_system="truecolor", file=io.StringIO())
+        console.print(self.messages.get_option(f"m{self.message_id}").prompt)
+        if "▀" in console.export_text(clear=False):
+            self.seen.add(console.export_text(styles=True))
+        return len(self.seen)
 
 
 async def test_kitty_renders_inline_custom_emoji() -> None:
@@ -330,6 +337,57 @@ async def open_general_with(
     await wait_until(pilot, lambda: len(messages.messages) == count)
     await settle(pilot)
     return chat, messages
+
+
+async def test_highlighted_gif_embed_animates() -> None:
+    client = FakeClient()
+    media = EmbedMedia(
+        "https://media.tenor.com/cat.gif",
+        proxy_url="https://images-ext-1.discordapp.net/external/cat.gif",
+        width=8,
+        height=8,
+    )
+    embed = Embed(kind="image", url="https://media.tenor.com/cat.gif", image=media)
+    message = replace(make_message(31, author=FRIEND, content="look"), embeds=(embed,))
+    client.media.files[media.proxy_url or ""] = gif(3)
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        messages.focus()
+        messages.highlighted = messages.get_option_index(f"m{message.id}")
+        frames = FrameCollector(messages, message.id)
+        await wait_until(pilot, lambda: frames.distinct() >= 2, rounds=200)
+
+
+async def test_new_embeds_and_store_members_redraw_a_message() -> None:
+    client = FakeClient()
+    app = TcordApp(client, Settings(appearance=AppearanceSettings(image_protocol="off")))
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        original = messages.messages[-2]  # by Friend, carrying an outdated member copy
+        stale = replace(original, member=Member(FRIEND.id, nick="Old"))
+        messages.update(stale)
+        app.store.members.setdefault(GUILD_ID, {})[FRIEND.id] = Member(FRIEND.id, nick="New")
+        unfurled = replace(stale, embeds=(Embed(kind="rich", title="Release notes"),))
+        messages.update(unfurled)  # same content and edit time: only the embed changed
+        text = prompt_text(messages, original.id)
+        assert "Release notes" in text
+        assert "New" in text
+        assert "Old" not in text
+
+
+async def test_trimmed_messages_release_their_cache_entries() -> None:
+    client = FakeClient()
+    for user in (ME, FRIEND):
+        client.media.files[avatar_url(user, None, GUILD_ID, 64)] = png((0, 200, 0))
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        oldest = messages.messages[0].id
+        assert oldest in messages._cache
+        messages.trim(len(messages.messages) - 1)
+        assert oldest not in messages._cache
+        assert all(oldest not in owners for owners in messages._image_owners.values())
 
 
 @pytest.mark.parametrize(("opt_in", "expected"), [(True, "kitty"), (False, "halfblock")])
