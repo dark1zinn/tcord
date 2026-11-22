@@ -7,8 +7,11 @@ for its own pane while it runs and restore the previous value on exit.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
+from types import FrameType
 
 type Runner = Callable[[Sequence[str]], str | None]
 
@@ -88,3 +91,27 @@ def wrap_for_tmux(sequence: str) -> str:
         "\x1bPtmux;" + (command + "\x1b\\").replace("\x1b", "\x1b\x1b") + "\x1b\\"
         for command in commands
     )
+
+
+def restore_on_signals(
+    tmux: Tmux,
+    signals: Sequence[signal.Signals] | None = None,
+    *,
+    kill: Callable[[int, int], None] = os.kill,
+) -> None:
+    """Restore the pane option when Tcord is killed or its terminal goes away.
+
+    Closing the pane sends SIGHUP and ``kill`` sends SIGTERM; neither runs ``finally``
+    blocks, so the handler restores first and then lets the signal act as usual.
+    """
+    if signals is None:
+        names = ("SIGHUP", "SIGTERM")
+        signals = [getattr(signal, name) for name in names if hasattr(signal, name)]
+
+    def handler(signum: int, _frame: FrameType | None) -> None:
+        tmux.restore_passthrough()
+        signal.signal(signum, signal.SIG_DFL)
+        kill(os.getpid(), signum)
+
+    for item in signals:
+        signal.signal(item, handler)

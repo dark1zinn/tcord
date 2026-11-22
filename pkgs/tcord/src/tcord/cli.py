@@ -38,7 +38,7 @@ def main(config: Path | None, debug: bool) -> None:
     from tcord_core import Session
 
     from .app import TcordApp
-    from .terminal import Tmux
+    from .terminal import Tmux, restore_on_signals
 
     session = Session(
         credential_store="system" if settings.general.remember_session else "memory",
@@ -47,6 +47,8 @@ def main(config: Path | None, debug: bool) -> None:
         cache_dir=platformdirs.user_cache_path("tcord") / "media",
     )
     tmux = Tmux.detect(os.environ)
+    if tmux is not None:
+        restore_on_signals(tmux)
     app = TcordApp(TcordClient(session), settings, settings_file, warnings, tmux=tmux)
     try:
         app.run()

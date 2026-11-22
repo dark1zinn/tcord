@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import signal
+
 import pytest
 from fakes import FakeTmux
-from tcord.terminal import Tmux, wrap_for_tmux
+from tcord.terminal import Tmux, restore_on_signals, wrap_for_tmux
 
 
 @pytest.mark.parametrize(
@@ -66,3 +68,20 @@ def test_wrap_doubles_escapes_per_command() -> None:
         "\x1bPtmux;\x1b\x1b_Ga=T,m=1;AAAA\x1b\x1b\\\x1b\\"
         "\x1bPtmux;\x1b\x1b_Gm=0;BBBB\x1b\x1b\\\x1b\\"
     )
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGUSR1"), reason="POSIX signals")
+def test_signal_restores_passthrough_then_lets_the_signal_through() -> None:
+    fake = FakeTmux()
+    tmux = Tmux("%1", fake)
+    tmux.enable_passthrough()
+    forwarded: list[int] = []
+    previous = signal.getsignal(signal.SIGUSR1)
+    try:
+        restore_on_signals(tmux, [signal.SIGUSR1], kill=lambda _pid, sig: forwarded.append(sig))
+        signal.raise_signal(signal.SIGUSR1)
+        assert fake.sets[-1] == ("set", "-pu", "-t", "%1", "allow-passthrough")
+        assert forwarded == [signal.SIGUSR1]  # then the default action runs
+        assert signal.getsignal(signal.SIGUSR1) == signal.SIG_DFL
+    finally:
+        signal.signal(signal.SIGUSR1, previous)
