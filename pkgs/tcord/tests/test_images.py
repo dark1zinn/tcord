@@ -226,9 +226,14 @@ def test_decode_shrinks_every_frame_to_the_limit() -> None:
     assert all(image.width <= 40 and image.height <= 20 for image, _ in frames)
 
 
-def test_off_protocol_never_fetches() -> None:
+async def test_off_protocol_never_fetches() -> None:
+    calls: list[str] = []
+
     async def fetch(url: str) -> bytes:
-        raise AssertionError("fetched")
+        calls.append(url)
+        return png_bytes(4, 4, (1, 2, 3, 255))
 
     store = ImageStore(fetch, ImageProtocol.OFF)
     assert store.get(ImageKey("https://cdn.discordapp.com/a.png", 4, 4)) is None
+    await store.settled()
+    assert calls == []
