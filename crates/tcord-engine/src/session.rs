@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use crate::discord::{Channel, Guild, Message, MessageReference};
 use crate::error::{EngineError, Result};
 use crate::gateway::{GatewayConfig, GatewayEvent, GatewayHandle, Ready};
 use crate::http::DiscordHttp;
+use crate::media::{HostPolicy, MediaCache};
 
 #[derive(Clone, Debug, Default)]
 pub struct SessionConfig {
@@ -23,12 +25,17 @@ pub struct SessionConfig {
     pub locale: Option<String>,
     /// Base reconnect delay; defaults to one second (tests shrink it).
     pub reconnect_base: Option<Duration>,
+    /// Directory for the media cache; `None` disables on-disk caching.
+    pub cache_dir: Option<PathBuf>,
+    /// Hosts media may be fetched from; defaults to Discord's CDN and proxy.
+    pub media_hosts: Option<HostPolicy>,
 }
 
 /// A Discord account session: authentication, REST operations and the gateway.
 pub struct Session {
     auth: Arc<AuthController>,
     http: Arc<DiscordHttp>,
+    media: MediaCache,
     gateway_config: GatewayConfig,
     gateway: Mutex<Option<Arc<GatewayHandle>>>,
     /// Last ack token Discord returned, with the user it belongs to.
@@ -56,9 +63,14 @@ impl Session {
             locale,
             reconnect_base: config.reconnect_base.unwrap_or(defaults.reconnect_base),
         };
+        let media = MediaCache::new(
+            config.cache_dir,
+            config.media_hosts.unwrap_or(HostPolicy::Discord),
+        )?;
         Ok(Self {
             auth,
             http,
+            media,
             gateway_config,
             gateway: Mutex::new(None),
             ack_token: Mutex::new(None),
@@ -305,6 +317,82 @@ impl Session {
         }
         Ok(())
     }
+
+    /// Download Discord-hosted media through the on-disk cache.
+    pub async fn fetch_media(&self, url: &str) -> Result<Vec<u8>> {
+        if self.closed.is_cancelled() {
+            return Err(EngineError::Cancelled);
+        }
+        tokio::select! {
+            _ = self.closed.cancelled() => Err(EngineError::Cancelled),
+            result = self.media.fetch(url) => result,
+        }
+    }
+
+    /// Ask the gateway for guild members (role colours and nicknames of message authors).
+    pub fn request_members(&self, guild_id: String, user_ids: Vec<String>) {
+        if let Some(gateway) = self.current_gateway() {
+            gateway.request_members(guild_id, user_ids);
+        }
+    }
+
+    /// Threads of a text or forum channel, most recently active first.
+    pub async fn search_threads(
+        &self,
+        channel_id: &str,
+        archived: bool,
+        offset: u32,
+    ) -> Result<ThreadPage> {
+        let query = [
+            ("archived", archived.to_string()),
+            ("sort_by", "last_message_time".to_owned()),
+            ("sort_order", "desc".to_owned()),
+            ("limit", THREAD_PAGE.to_string()),
+            ("offset", offset.to_string()),
+        ];
+        let value = self
+            .call(
+                Method::GET,
+                &format!("/channels/{channel_id}/threads/search"),
+                &query,
+                None,
+            )
+            .await?;
+        let joined: Vec<&str> = value
+            .get("members")
+            .map(array)
+            .into_iter()
+            .flatten()
+            .filter_map(|member| member.get("id").and_then(Value::as_str))
+            .collect();
+        let threads = value
+            .get("threads")
+            .map(array)
+            .into_iter()
+            .flatten()
+            .filter_map(|thread| Channel::from_value(thread, None, &[]).ok())
+            .map(|mut thread| {
+                thread.joined |= joined.contains(&thread.id.as_str());
+                thread
+            })
+            .collect();
+        Ok(ThreadPage {
+            threads,
+            has_more: value
+                .get("has_more")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+}
+
+const THREAD_PAGE: u32 = 25;
+
+/// One page of [`Session::search_threads`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThreadPage {
+    pub threads: Vec<Channel>,
+    pub has_more: bool,
 }
 
 /// Discord's message length limit.

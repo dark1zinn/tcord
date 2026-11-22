@@ -35,9 +35,14 @@ _EMPHASIS: tuple[tuple[str, Style | None], ...] = (
     ("_", _ITALIC),
 )
 _ANGLE = re.compile(
-    r"<(?:@!?(?P<user>\d+)|@&(?P<role>\d+)|#(?P<chan>\d+)|a?:(?P<emoji>\w+):\d+"
+    r"<(?:@!?(?P<user>\d+)|@&(?P<role>\d+)|#(?P<chan>\d+)"
+    r"|(?P<anim>a?):(?P<emoji>\w+):(?P<eid>\d+)"
+    r"|/(?P<command>[\w-]+(?: [\w-]+){0,2}):\d+"
     r"|t:(?P<ts>-?\d+)(?::(?P<style>[tTdDfFR]))?)>"
 )
+#: A whole message made only of custom emoji is shown large ("jumbo"), like Discord.
+CUSTOM_EMOJI = re.compile(r"<(a?):(\w+):(\d+)>")
+JUMBO_LIMIT = 27
 _LINK = re.compile(r"\[([^\[\]\n]+)\]\((https?://[^\s)]+)\)")
 _URL = re.compile(r"https?://[^\s<>]+")
 _EVERYONE = re.compile(r"@(?:everyone|here)\b")
@@ -74,6 +79,10 @@ def _no_role(_id: str) -> None:
     return None
 
 
+def _no_emoji(_id: str, _name: str, _animated: bool) -> None:
+    return None
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -85,6 +94,8 @@ class RenderContext:
     user_name: Callable[[str], str | None] = _no_name
     channel_name: Callable[[str], str | None] = _no_name
     role: Callable[[str], tuple[str, int] | None] = _no_role
+    #: Inline image for a custom emoji ``(id, name, animated)``; ``None`` shows ``:name:``.
+    emoji: Callable[[str, str, bool], Text | None] = _no_emoji
     reveal_spoilers: bool = False
     ascii_only: bool = False
     time_format: str = "24h"
@@ -403,7 +414,13 @@ class _Renderer:
             text = f"#{name}" if name else _("#unknown-channel")
             self.out.append(text, base + self.mention)
         elif (emoji := match.group("emoji")) is not None:
-            self.out.append(f":{emoji}:", base)
+            image = ctx.emoji(match.group("eid"), emoji, bool(match.group("anim")))
+            if image is not None:
+                self.out.append_text(image)
+            else:
+                self.out.append(f":{emoji}:", base)
+        elif (command := match.group("command")) is not None:
+            self.out.append(f"/{command}", base + self.mention)
         else:
             raw_ts = match.group("ts")
             text = self._timestamp(int(raw_ts), match.group("style") or "f")

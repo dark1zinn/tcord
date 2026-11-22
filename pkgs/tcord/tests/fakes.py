@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from client.errors import CaptchaRequiredError, NetworkError
+from client.errors import CaptchaRequiredError, NetworkError, NotFoundError
 from client.models import (
     AuthFailure,
     AuthKind,
@@ -23,6 +23,7 @@ from client.models import (
     QrUser,
     ReadState,
     ReadySnapshot,
+    ThreadPage,
     User,
 )
 
@@ -194,6 +195,11 @@ class FakeGateway:
     def __init__(self) -> None:
         self.events: asyncio.Queue[GatewayEvent | None] = asyncio.Queue()
         self.subscribed: list[str] = []
+        self.member_requests: list[tuple[str, tuple[str, ...]]] = []
+        self.thread_calls: list[tuple[str, int]] = []
+        self.thread_pages: dict[str, list[Channel]] = {}
+        self.thread_page_size: int | None = None
+        self.thread_failures = 0
         self.connects = 0
         self.snapshot = snapshot()
 
@@ -221,10 +227,39 @@ class FakeGateway:
         return list(self.snapshot.guilds)
 
     async def guild_channels(self, guild_id: str) -> list[Channel]:
-        return [c for g in self.snapshot.guilds if g.id == guild_id for c in g.channels]
+        return [c for g in self.snapshot.guilds if g.id == guild_id for c in g.channels or ()]
 
     async def private_channels(self) -> list[Channel]:
         return list(self.snapshot.private_channels)
+
+    def request_members(self, guild_id: str, user_ids: list[str]) -> None:
+        self.member_requests.append((guild_id, tuple(user_ids)))
+
+    async def threads(
+        self, channel_id: str, *, archived: bool = False, offset: int = 0
+    ) -> ThreadPage:
+        self.thread_calls.append((channel_id, offset))
+        if self.thread_failures:
+            self.thread_failures -= 1
+            raise NetworkError("search unavailable")
+        posts = self.thread_pages.get(channel_id, [])
+        size = self.thread_page_size or len(posts)
+        page = posts[offset : offset + size]
+        return ThreadPage(tuple(page), has_more=offset + size < len(posts))
+
+
+class FakeMedia:
+    """Serves registered URLs; anything else is missing (like an expired CDN link)."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.requests: list[str] = []
+
+    async def fetch(self, url: str) -> bytes:
+        self.requests.append(url)
+        if url not in self.files:
+            raise NotFoundError("missing media")
+        return self.files[url]
 
 
 class FakeMessages:
@@ -287,8 +322,36 @@ class FakeClient:
         self.auth = FakeAuth(stored_session=stored_session, mfa=mfa)
         self.gateway = FakeGateway()
         self.messages = FakeMessages()
+        self.media = FakeMedia()
         self.auth.on_logout.append(self.gateway.stop)
         self.closed = False
 
     def close(self) -> None:
         self.closed = True
+
+
+class FakeTmux:
+    """Answers the tmux commands Tcord runs (``Tmux`` runner) and records every ``set``."""
+
+    def __init__(self, client: str = "xterm-kitty kitty(0.49.2)", pane_value: str = "") -> None:
+        self.client = client
+        self.global_value = "off"
+        self.pane_value = pane_value
+        self.sets: list[tuple[str, ...]] = []
+        self.fail_sets = False
+
+    def __call__(self, args: Sequence[str]) -> str | None:
+        command = tuple(args[1:])
+        if command[0] == "display-message":
+            return self.client
+        if command[0] == "show":
+            if command[1] == "-Apv":
+                return self.pane_value or self.global_value
+            return self.pane_value
+        if command[0] == "set":
+            if self.fail_sets:
+                return None
+            self.sets.append(command)
+            self.pane_value = "" if command[1] == "-pu" else command[-1]
+            return ""
+        raise AssertionError(f"unexpected tmux command {args}")

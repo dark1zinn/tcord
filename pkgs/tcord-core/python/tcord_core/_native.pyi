@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Literal, final
 
 @final
@@ -6,6 +7,7 @@ class User:
     id: str
     username: str
     global_name: str | None
+    avatar: str | None
     bot: bool
 
 @final
@@ -33,6 +35,21 @@ class Role:
     id: str
     name: str
     color: int
+    position: int
+    permissions: int
+
+@final
+class PermissionOverwrite:
+    id: str
+    kind: int
+    allow: int
+    deny: int
+
+@final
+class ThreadMetadata:
+    archived: bool
+    locked: bool
+    archive_timestamp: datetime | None
 
 @final
 class Channel:
@@ -45,21 +62,63 @@ class Channel:
     last_message_id: str | None
     topic: str | None
     recipients: list[User]
+    permission_overwrites: list[PermissionOverwrite]
+    owner_id: str | None
+    thread_metadata: ThreadMetadata | None
+    message_count: int | None
+    joined: bool
+
+@final
+class Member:
+    user_id: str
+    nick: str | None
+    avatar: str | None
+    roles: list[str]
 
 @final
 class Guild:
     id: str
     name: str
     icon: str | None
-    channels: list[Channel]
+    owner_id: str | None
+    channels: list[Channel] | None
+    threads: list[Channel] | None
     roles: list[Role]
+    me: Member | None
     unavailable: bool
 
 @final
 class Attachment:
     filename: str
     url: str
+    proxy_url: str | None
     size: int
+    content_type: str | None
+    width: int | None
+    height: int | None
+
+@final
+class EmbedMedia:
+    url: str
+    proxy_url: str | None
+    width: int | None
+    height: int | None
+
+@final
+class Embed:
+    kind: str
+    title: str | None
+    description: str | None
+    url: str | None
+    image: EmbedMedia | None
+    thumbnail: EmbedMedia | None
+    video: EmbedMedia | None
+
+@final
+class Sticker:
+    id: str
+    name: str
+    format: int
 
 @final
 class MessageReference:
@@ -74,7 +133,7 @@ class Message:
     channel_id: str
     guild_id: str | None
     author: User
-    author_nick: str | None
+    member: Member | None
     content: str
     timestamp: datetime
     edited_timestamp: datetime | None
@@ -83,7 +142,9 @@ class Message:
     mention_role_ids: list[str]
     mention_everyone: bool
     attachments: list[Attachment]
-    embed_titles: list[str]
+    embeds: list[Embed]
+    stickers: list[Sticker]
+    thread: Channel | None
     nonce: str | None
     @property
     def referenced(self) -> Message | None: ...
@@ -103,6 +164,11 @@ class Ready:
     users: list[User]
 
 @final
+class ThreadPage:
+    threads: list[Channel]
+    has_more: bool
+
+@final
 class GatewayEvent:
     kind: str
     message: Message | None
@@ -118,6 +184,13 @@ class GatewayEvent:
     status: str | None
     retry_in: float | None
     unavailable: bool | None
+    parent_id: str | None
+    channel_ids: list[str] | None
+    threads: list[Channel] | None
+    members: list[Member] | None
+    role: Role | None
+    role_id: str | None
+    joined: bool | None
 
 @final
 class Session:
@@ -129,12 +202,14 @@ class Session:
         locale: str = "en-US",
         gateway_url: str | None = None,
         reconnect_base: float | None = None,
+        cache_dir: str | Path | None = None,
     ) -> None: ...
     def auth_state(self) -> AuthState: ...
     def cancel_qr_login(self) -> None: ...
     def close(self) -> None: ...
     def subscribe_guild(self, guild_id: str) -> None: ...
     def disconnect_gateway(self) -> None: ...
+    def request_members(self, guild_id: str, user_ids: list[str]) -> None: ...
     async def wait_auth_change(self, after_version: int) -> AuthState: ...
     async def resume_session(self) -> AuthState: ...
     async def login_password(self, login: str, password: str) -> AuthState: ...
@@ -162,3 +237,7 @@ class Session:
     async def delete_message(self, channel_id: str, message_id: str) -> None: ...
     async def trigger_typing(self, channel_id: str) -> None: ...
     async def ack_message(self, channel_id: str, message_id: str) -> None: ...
+    async def fetch_media(self, url: str) -> bytes: ...
+    async def search_threads(
+        self, channel_id: str, archived: bool = False, offset: int = 0
+    ) -> ThreadPage: ...

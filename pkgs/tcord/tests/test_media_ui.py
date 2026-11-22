@@ -1,0 +1,464 @@
+"""Images and member data in the chat UI: icons, rail badges, avatars and name colours."""
+
+from __future__ import annotations
+
+import io
+from dataclasses import replace
+
+import pytest
+from client.cdn import attachment_preview_url, avatar_url, emoji_url, guild_icon_url, sticker_url
+from client.models import (
+    Attachment,
+    Embed,
+    EmbedMedia,
+    Member,
+    MembersLoaded,
+    MessageCreated,
+    MessageInfo,
+    Role,
+    Sticker,
+    StickerFormat,
+)
+from conftest import settle, wait_until
+from fakes import FRIEND, GENERAL, GUILD_ID, ME, OTHER, RANDOM, FakeClient, FakeTmux, make_message
+from PIL import Image
+from rich.console import Console
+from rich.padding import Padding
+from rich.style import Style
+from rich.text import Text
+from tcord.app import TcordApp
+from tcord.images import PLACEHOLDER, fit
+from tcord.screens.chat import ChatScreen
+from tcord.settings import AppearanceSettings, Settings
+from tcord.terminal import Tmux
+from tcord.widgets.messages import MessageList
+from tcord.widgets.rail import ServerRail
+from textual.pilot import Pilot
+
+HALFBLOCK = Settings(appearance=AppearanceSettings(image_protocol="halfblock"))
+
+
+def png(color: tuple[int, int, int]) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16), color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def with_guild_icon(client: FakeClient) -> str:
+    guild = client.gateway.snapshot.guilds[0]
+    client.gateway.snapshot = replace(
+        client.gateway.snapshot, guilds=(replace(guild, icon="iconhash"),)
+    )
+    url = guild_icon_url(GUILD_ID, "iconhash", 64)
+    client.media.files[url] = png((200, 10, 10))
+    return url
+
+
+def rail_prompt(chat: ChatScreen) -> str:
+    rail = chat.query_one(ServerRail)
+    return str(rail.get_option(f"g{GUILD_ID}").prompt)
+
+
+async def chat_screen(app: TcordApp, pilot: Pilot) -> ChatScreen:
+    await wait_until(pilot, lambda: isinstance(app.screen, ChatScreen))
+    await settle(pilot)
+    screen = app.screen
+    assert isinstance(screen, ChatScreen)
+    return screen
+
+
+async def test_rail_draws_guild_icon_once_loaded() -> None:
+    client = FakeClient()
+    url = with_guild_icon(client)
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        chat = await chat_screen(app, pilot)
+        await wait_until(pilot, lambda: "▀" in rail_prompt(chat))
+        lines = rail_prompt(chat).split("\n")
+        assert len(lines) == 3
+        assert all(line[1:7] == "▀" * 6 for line in lines)
+    assert client.media.requests.count(url) == 1
+
+
+async def test_rail_falls_back_to_initials_without_images() -> None:
+    client = FakeClient()
+    with_guild_icon(client)
+    app = TcordApp(client, Settings(appearance=AppearanceSettings(image_protocol="off")))
+    async with app.run_test(size=(120, 36)) as pilot:
+        chat = await chat_screen(app, pilot)
+        assert "TT" in rail_prompt(chat)
+    assert client.media.requests == []
+
+
+async def test_rail_unread_pill_and_mention_badge() -> None:
+    client = FakeClient()
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        chat = await chat_screen(app, pilot)
+        assert "▌" not in rail_prompt(chat)
+        mention = make_message(60, RANDOM, OTHER, f"<@{ME.id}>", mention_ids=(ME.id,))
+        client.gateway.push(MessageCreated(mention))
+        await wait_until(pilot, lambda: " 1 " in rail_prompt(chat))
+        lines = rail_prompt(chat).split("\n")
+        assert lines[1].startswith("▌")  # short pill on the middle row: unread
+        assert not lines[0].startswith("▌")
+        assert lines[2].endswith(" 1 ")  # badge in the bottom-right corner
+
+        chat.choose_guild(GUILD_ID)
+        await settle(pilot)
+        lines = rail_prompt(chat).split("\n")
+        assert all(line.startswith("▌") for line in lines)  # tall pill: selected
+
+
+async def open_general(app: TcordApp, pilot: Pilot) -> tuple[ChatScreen, MessageList]:
+    chat = await chat_screen(app, pilot)
+    chat.choose_guild(GUILD_ID)
+    chat.open_channel(GENERAL)
+    messages = chat.query_one(MessageList)
+    await wait_until(pilot, lambda: len(messages.messages) == 30)
+    await settle(pilot)
+    return chat, messages
+
+
+def prompt_text(messages: MessageList, message_id: str) -> str:
+    """Plain text of a rendered message option, as the terminal would show it."""
+    option = messages.get_option(f"m{message_id}")
+    console = Console(width=80, record=True, color_system=None)
+    console.print(option.prompt)
+    return "\n".join(line.rstrip() for line in console.export_text().splitlines())
+
+
+async def test_avatars_render_beside_group_headers_only() -> None:
+    client = FakeClient()
+    for user in (ME, FRIEND):
+        client.media.files[avatar_url(user, None, GUILD_ID, 64)] = png((0, 200, 0))
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        header = make_message(30)  # authored by Me after Friend: starts a group
+        await wait_until(pilot, lambda: "▀▀▀▀" in prompt_text(messages, header.id))
+        lines = prompt_text(messages, header.id).splitlines()
+        assert lines[0] == ""  # one blank line separates message groups
+        assert lines[1].startswith("▀▀▀▀ Me")
+
+
+async def test_avatar_column_hidden_when_disabled() -> None:
+    client = FakeClient()
+    settings = Settings(
+        appearance=AppearanceSettings(image_protocol="halfblock", show_avatars=False)
+    )
+    app = TcordApp(client, settings)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        lines = prompt_text(messages, make_message(30).id).splitlines()
+        assert lines[1].startswith("Me")
+    assert not any("avatars" in url for url in client.media.requests)
+
+
+async def test_author_names_use_cached_member_nick_and_highest_coloured_role() -> None:
+    client = FakeClient()
+    guild = client.gateway.snapshot.guilds[0]
+    roles = (Role("7", "Mods", 0x00FF00, 5), Role("8", "VIP", 0xFF0000, 2))
+    client.gateway.snapshot = replace(
+        client.gateway.snapshot, guilds=(replace(guild, roles=roles),)
+    )
+    # REST history carries neither guild_id nor member: both come from the store.
+    history = client.messages.histories[GENERAL]
+    client.messages.histories[GENERAL] = [replace(m, guild_id=None) for m in history]
+    app = TcordApp(client, Settings(appearance=AppearanceSettings(image_protocol="off")))
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        assert client.gateway.member_requests
+        guild_id, requested = client.gateway.member_requests[0]
+        assert guild_id == GUILD_ID
+        assert set(requested) == {ME.id, FRIEND.id}
+        member = Member(FRIEND.id, nick="Pal", roles=("7", "8"))
+        client.gateway.push(MembersLoaded(GUILD_ID, (member,)))
+        friend_message = make_message(29)
+
+        def name_colour() -> str | None:
+            prompt = messages.get_option(f"m{friend_message.id}").prompt
+            text = prompt.renderable if isinstance(prompt, Padding) else prompt
+            assert isinstance(text, Text)
+            span = next(
+                (span for span in text.spans if text.plain[span.start : span.end] == "Pal"), None
+            )
+            style = span.style if span is not None else None
+            return style.color.name if isinstance(style, Style) and style.color else None
+
+        await wait_until(pilot, lambda: name_colour() == "#00ff00")
+        assert len(client.gateway.member_requests) == 1  # no duplicate requests
+
+
+def gif(frames: int) -> bytes:
+    images = [Image.new("RGB", (8, 8), (i * 80, 0, 0)) for i in range(frames)]
+    buffer = io.BytesIO()
+    images[0].save(buffer, format="GIF", save_all=True, append_images=images[1:], duration=40)
+    return buffer.getvalue()
+
+
+def show_message(client: FakeClient, message: MessageInfo, settings: Settings) -> TcordApp:
+    """An app whose #general history ends with ``message``."""
+    client.messages.histories[GENERAL].append(message)
+    return TcordApp(client, settings)
+
+
+async def test_image_attachment_sticker_and_jumbo_emoji_render_as_images() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "cat.png",
+        "https://cdn.discordapp.com/attachments/1/2/cat.png",
+        10,
+        proxy_url="https://media.discordapp.net/attachments/1/2/cat.png",
+        content_type="image/png",
+        width=200,
+        height=100,
+    )
+    sticker = Sticker("77", "wave", StickerFormat.PNG)
+    message = make_message(31, author=FRIEND, content="<:blob:55> <:blob:56>")
+    message = replace(message, attachments=(attachment,), stickers=(sticker,))
+    cols, rows = fit(200, 100, 40, 15)
+    client.media.files[attachment_preview_url(attachment, cols * 10, rows * 20)] = png((1, 2, 3))
+    client.media.files[sticker_url(sticker, 160) or ""] = png((4, 5, 6))
+    for emoji_id in ("55", "56"):
+        client.media.files[emoji_url(emoji_id, animated=False, pixels=48)] = png((7, 8, 9))
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+
+        def text() -> str:
+            return prompt_text(messages, message.id)
+
+        await wait_until(pilot, lambda: text().count("▀▀▀▀ ▀▀▀▀") >= 1 and "[sticker" not in text())
+        rendered = text()
+        assert "<:blob" not in rendered  # jumbo emoji replace the codes
+        assert ":blob:" not in rendered
+        assert "cat.png" not in rendered  # the preview replaces the file line
+        assert sum(1 for line in rendered.splitlines() if line.strip().startswith("▀" * 16)) >= 8
+
+
+async def test_missing_media_falls_back_to_text() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "notes.txt", "https://cdn.discordapp.com/attachments/1/2/notes.txt", 2048
+    )
+    lottie = Sticker("78", "dance", StickerFormat.LOTTIE)
+    message = replace(
+        make_message(31, author=FRIEND, content="hi <:gone:9>"),
+        attachments=(attachment,),
+        stickers=(lottie,),
+    )
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await settle(pilot, 10)
+        rendered = prompt_text(messages, message.id)
+        assert "hi :gone:" in rendered  # half-blocks are too coarse for inline emoji
+        assert "notes.txt (2.0 KB)" in rendered
+        assert "[sticker: dance]" in rendered
+
+
+async def test_gif_link_is_replaced_by_its_preview() -> None:
+    client = FakeClient()
+    preview = EmbedMedia(
+        "https://media.tenor.com/x.png",
+        proxy_url="https://images-ext-1.discordapp.net/external/x.png",
+        width=100,
+        height=100,
+    )
+    embed = Embed(kind="gifv", url="https://tenor.com/view/cat", thumbnail=preview)
+    message = replace(
+        make_message(31, author=FRIEND, content="https://tenor.com/view/cat"), embeds=(embed,)
+    )
+    client.media.files[preview.proxy_url or ""] = png((9, 9, 9))
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await wait_until(pilot, lambda: "▀" in prompt_text(messages, message.id))
+        assert "tenor.com" not in prompt_text(messages, message.id)
+
+
+async def test_highlighted_gif_animates() -> None:
+    client = FakeClient()
+    attachment = Attachment(
+        "a.gif",
+        "https://cdn.discordapp.com/attachments/1/2/a.gif",
+        10,
+        content_type="image/gif",
+        width=8,
+        height=8,
+    )
+    message = replace(make_message(31, author=FRIEND, content=""), attachments=(attachment,))
+    client.media.files[attachment.url] = gif(3)
+    settings = Settings(appearance=AppearanceSettings(image_protocol="halfblock"))
+    app = show_message(client, message, settings)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        messages.focus()
+        messages.highlighted = messages.get_option_index(f"m{message.id}")
+        frames = FrameCollector(messages, message.id)
+        await wait_until(pilot, lambda: frames.distinct() >= 2, rounds=200)
+
+
+class FrameCollector:
+    """Distinct drawn image frames of one message (loading and text-only states don't count)."""
+
+    def __init__(self, messages: MessageList, message_id: str) -> None:
+        self.messages, self.message_id = messages, message_id
+        self.seen: set[str] = set()
+
+    def distinct(self) -> int:
+        console = Console(width=80, record=True, color_system="truecolor", file=io.StringIO())
+        console.print(self.messages.get_option(f"m{self.message_id}").prompt)
+        if "▀" in console.export_text(clear=False):
+            self.seen.add(console.export_text(styles=True))
+        return len(self.seen)
+
+
+async def test_kitty_renders_inline_custom_emoji() -> None:
+    client = FakeClient()
+    message = make_message(31, author=FRIEND, content="hello <:wave:12> there")
+    client.media.files[emoji_url("12", animated=False, pixels=48)] = png((1, 1, 1))
+    settings = Settings(appearance=AppearanceSettings(image_protocol="kitty"))
+    app = show_message(client, message, settings)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, message.id))
+        assert ":wave:" not in prompt_text(messages, message.id)
+
+
+async def open_general_with(
+    app: TcordApp, pilot: Pilot, count: int
+) -> tuple[ChatScreen, MessageList]:
+    chat = await chat_screen(app, pilot)
+    chat.choose_guild(GUILD_ID)
+    chat.open_channel(GENERAL)
+    messages = chat.query_one(MessageList)
+    await wait_until(pilot, lambda: len(messages.messages) == count)
+    await settle(pilot)
+    return chat, messages
+
+
+async def test_highlighted_gif_embed_animates() -> None:
+    client = FakeClient()
+    media = EmbedMedia(
+        "https://media.tenor.com/cat.gif",
+        proxy_url="https://images-ext-1.discordapp.net/external/cat.gif",
+        width=8,
+        height=8,
+    )
+    embed = Embed(kind="image", url="https://media.tenor.com/cat.gif", image=media)
+    message = replace(make_message(31, author=FRIEND, content="look"), embeds=(embed,))
+    client.media.files[media.proxy_url or ""] = gif(3)
+    app = show_message(client, message, HALFBLOCK)
+    async with app.run_test(size=(120, 40)) as pilot:
+        _, messages = await open_general_with(app, pilot, 31)
+        messages.focus()
+        messages.highlighted = messages.get_option_index(f"m{message.id}")
+        frames = FrameCollector(messages, message.id)
+        await wait_until(pilot, lambda: frames.distinct() >= 2, rounds=200)
+
+
+async def test_new_embeds_and_store_members_redraw_a_message() -> None:
+    client = FakeClient()
+    app = TcordApp(client, Settings(appearance=AppearanceSettings(image_protocol="off")))
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        original = messages.messages[-2]  # by Friend, carrying an outdated member copy
+        stale = replace(original, member=Member(FRIEND.id, nick="Old"))
+        messages.update(stale)
+        app.store.members.setdefault(GUILD_ID, {})[FRIEND.id] = Member(FRIEND.id, nick="New")
+        unfurled = replace(stale, embeds=(Embed(kind="rich", title="Release notes"),))
+        messages.update(unfurled)  # same content and edit time: only the embed changed
+        text = prompt_text(messages, original.id)
+        assert "Release notes" in text
+        assert "New" in text
+        assert "Old" not in text
+
+
+async def test_trimmed_messages_release_their_cache_entries() -> None:
+    client = FakeClient()
+    for user in (ME, FRIEND):
+        client.media.files[avatar_url(user, None, GUILD_ID, 64)] = png((0, 200, 0))
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        oldest = messages.messages[0].id
+        assert oldest in messages._cache
+        messages.trim(len(messages.messages) - 1)
+        assert oldest not in messages._cache
+        assert all(oldest not in owners for owners in messages._image_owners.values())
+
+
+@pytest.mark.parametrize(("opt_in", "expected"), [(True, "kitty"), (False, "halfblock")])
+async def test_tmux_in_kitty_uses_kitty_with_passthrough(
+    monkeypatch: pytest.MonkeyPatch, opt_in: bool, expected: str
+) -> None:
+    monkeypatch.setenv("TERM", "tmux-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    fake = FakeTmux()
+    settings = Settings(appearance=AppearanceSettings(tmux_passthrough=opt_in))
+    app = TcordApp(FakeClient(), settings, tmux=Tmux("%1", fake))
+    assert app.images.protocol == expected
+    assert app.images.tmux
+    assert fake.pane_value == ("on" if opt_in else "")
+    async with app.run_test(size=(120, 36)) as pilot:
+        await chat_screen(app, pilot)
+        # Turning the option off in settings hands the pane back and drops to half blocks.
+        off = replace(settings.appearance, tmux_passthrough=False)
+        app.apply_settings(replace(settings, appearance=off))
+        assert app.images.protocol == "halfblock"
+        assert fake.pane_value == ""
+
+
+async def test_switching_to_kitty_redraws_loaded_images() -> None:
+    client = FakeClient()
+    for user in (ME, FRIEND):
+        client.media.files[avatar_url(user, None, GUILD_ID, 64)] = png((0, 200, 0))
+    app = TcordApp(client, HALFBLOCK)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, messages = await open_general(app, pilot)
+        header = make_message(30)
+        await wait_until(pilot, lambda: "▀▀▀▀" in prompt_text(messages, header.id))
+        kitty = replace(HALFBLOCK.appearance, image_protocol="kitty")
+        app.apply_settings(replace(HALFBLOCK, appearance=kitty))
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, header.id))
+        assert "▀" not in prompt_text(messages, header.id)
+
+
+async def test_evicted_kitty_images_reload_only_on_screen() -> None:
+    client = FakeClient()
+    history = client.messages.histories[GENERAL]
+    first, last = history[0], history[-1]
+    for position, message, name in ((0, first, "old"), (len(history) - 1, last, "new")):
+        attachment = Attachment(
+            f"{name}.png",
+            f"https://cdn.discordapp.com/attachments/1/2/{name}.png",
+            10,
+            content_type="image/png",
+            width=100,
+            height=50,
+        )
+        history[position] = replace(message, attachments=(attachment,))
+        cols, rows = fit(100, 50, 40, 15)
+        client.media.files[attachment_preview_url(attachment, cols * 10, rows * 20)] = png(
+            (9, 9, 9)
+        )
+    kitty = Settings(appearance=AppearanceSettings(image_protocol="kitty", show_avatars=False))
+    app = TcordApp(client, kitty)
+    async with app.run_test(size=(120, 30)) as pilot:
+        _, messages = await open_general(app, pilot)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, last.id))
+        await app.images.settled()
+        await settle(pilot)
+        requests = len(client.media.requests)
+        urls = {url for url in messages._image_owners if "/attachments/" in url}
+        for key in [key for key in app.images._cache if key.url in urls]:
+            del app.images._cache[key]  # as if the budget pushed them out of the terminal
+        app.images.on_evicted(urls)
+        await settle(pilot)
+        await app.images.settled()
+        await settle(pilot)
+        await wait_until(pilot, lambda: PLACEHOLDER in prompt_text(messages, last.id))
+        assert "old.png" in prompt_text(messages, first.id)  # off screen: file line, no reload
+        assert len(client.media.requests) == requests + 1  # only the visible one

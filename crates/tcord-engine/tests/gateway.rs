@@ -7,7 +7,7 @@ use flate2::{Compress, Compression, FlushCompress};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tcord_engine::gateway::{GatewayEvent, parse_ready};
-use tcord_engine::{AuthFailure, AuthKind, Session, SessionConfig};
+use tcord_engine::{AuthFailure, AuthKind, Guild, Session, SessionConfig};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -23,6 +23,7 @@ enum Script {
     DropThenResume,
     InvalidSession,
     AuthFailed,
+    ThreadsMembersRoles,
 }
 
 #[derive(Default)]
@@ -156,13 +157,77 @@ async fn serve(stream: TcpStream, connection: usize, script: Script, url: String
                 Script::ReadyThenMessage => {
                     peer.dispatch(2, "MESSAGE_CREATE", message("10")).await;
                     peer.send(json!({"op": 1, "d": null})).await;
-                    peer.expect(1).await;
+                    // A jittered regular heartbeat may come first; log until the reply.
+                    while peer.expect(1).await != json!(2) {}
                 }
                 Script::DropThenResume => return,
                 Script::InvalidSession => {
                     peer.send(json!({"op": 9, "d": false})).await;
                 }
                 Script::AuthFailed => peer.close(4004).await,
+                Script::ThreadsMembersRoles => {
+                    peer.dispatch(
+                        2,
+                        "THREAD_CREATE",
+                        json!({
+                            "id": "300", "type": 11, "guild_id": "100", "parent_id": "101",
+                            "name": "topic", "owner_id": "2", "message_count": 3,
+                            "thread_metadata": {"archived": false, "locked": true}
+                        }),
+                    )
+                    .await;
+                    let request = peer.expect(8).await;
+                    let members: Vec<Value> = request["user_ids"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| json!({"user": {"id": id}, "roles": ["7"], "nick": "Nick"}))
+                        .collect();
+                    peer.dispatch(
+                        3,
+                        "GUILD_MEMBERS_CHUNK",
+                        json!({"guild_id": "100", "members": members}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        4,
+                        "GUILD_ROLE_UPDATE",
+                        json!({"guild_id": "100", "role": {
+                            "id": "7", "name": "Mods", "position": 3,
+                            "permissions": "1024", "colors": {"primary_color": 255}
+                        }}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        5,
+                        "THREAD_LIST_SYNC",
+                        json!({"guild_id": "100", "threads": [
+                            {"id": "300", "type": 11, "parent_id": "101", "name": "a"},
+                            {"id": "301", "type": 11, "parent_id": "101", "name": "b"}
+                        ], "members": [{"id": "300", "user_id": "1"}]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        6,
+                        "THREAD_MEMBERS_UPDATE",
+                        json!({"id": "301", "guild_id": "100", "member_count": 2,
+                            "added_members": [{"user_id": "2"}]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        7,
+                        "THREAD_MEMBERS_UPDATE",
+                        json!({"id": "300", "guild_id": "100", "member_count": 1,
+                            "removed_member_ids": ["1"]}),
+                    )
+                    .await;
+                    peer.dispatch(
+                        8,
+                        "THREAD_MEMBER_UPDATE",
+                        json!({"id": "301", "guild_id": "100", "user_id": "1", "flags": 0}),
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -246,26 +311,38 @@ async fn zlib_ready_then_message() {
 
     assert_eq!(ready.user.username, "me");
     assert_eq!(ready.guilds[0].name, "Guild");
-    assert_eq!(ready.guilds[0].channels[0].name.as_deref(), Some("general"));
+    let channels = ready.guilds[0].channels.as_deref().unwrap();
+    assert_eq!(channels[0].name.as_deref(), Some("general"));
     assert_eq!(ready.private_channels[0].recipients[0].username, "friend");
     assert_eq!(ready.read_states[0].mention_count, 1);
     match next_non_status(&session).await {
         Some(GatewayEvent::MessageCreate(message)) => assert_eq!(message.content, "hi"),
         other => panic!("unexpected {other:?}"),
     }
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The heartbeat reply to the server's op 1 request carries the latest sequence (2). Wait
+    // for it rather than sleeping a fixed time: under load the reply can take a while.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let replied = log
+            .lock()
+            .unwrap()
+            .payloads
+            .iter()
+            .any(|(_, p)| p["op"] == 1 && p["d"] == 2);
+        if replied {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no heartbeat with seq 2"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let log = log.lock().unwrap();
     let identify = &log.payloads.iter().find(|(_, p)| p["op"] == 2).unwrap().1["d"];
     assert_eq!(identify["token"], "tok");
     assert_eq!(identify["capabilities"], 1047);
     assert_eq!(identify["properties"]["browser"], "Chrome");
-    let heartbeat = log
-        .payloads
-        .iter()
-        .rev()
-        .find(|(_, p)| p["op"] == 1)
-        .unwrap();
-    assert_eq!(heartbeat.1["d"], 2);
 }
 
 #[tokio::test]
@@ -349,4 +426,101 @@ fn legacy_ready_shape_parses_identically() {
     assert_eq!(modern.guilds, legacy.guilds);
     assert_eq!(modern.private_channels, legacy.private_channels);
     assert_eq!(modern.read_states, legacy.read_states);
+}
+
+#[tokio::test]
+async fn threads_members_and_roles_are_dispatched() {
+    let (url, log) = fake_gateway(Script::ThreadsMembersRoles).await;
+    let (_api, session) = session(url).await;
+    session.connect_gateway().await.unwrap();
+
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadUpsert(thread)) => {
+            assert_eq!(thread.parent_id.as_deref(), Some("101"));
+            assert_eq!(thread.message_count, Some(3));
+            assert!(thread.thread_metadata.unwrap().locked);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    session.request_members("100".into(), vec!["2".into(), "3".into()]);
+    match next_non_status(&session).await {
+        Some(GatewayEvent::Members { guild_id, members }) => {
+            assert_eq!(guild_id, "100");
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id, "2");
+            assert_eq!(members[0].roles, ["7"]);
+            assert_eq!(members[0].nick.as_deref(), Some("Nick"));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::RoleUpsert { role, .. }) => {
+            assert_eq!(
+                (role.color, role.position, role.permissions),
+                (255, 3, 1024)
+            );
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadListSync { threads, .. }) => {
+            let joined: Vec<_> = threads.iter().map(|t| (t.id.as_str(), t.joined)).collect();
+            assert_eq!(joined, [("300", true), ("301", false)]);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    // Someone else's membership change is not reported; ours is.
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadMembership {
+            thread_id, joined, ..
+        }) => assert_eq!((thread_id.as_str(), joined), ("300", false)),
+        other => panic!("unexpected {other:?}"),
+    }
+    match next_non_status(&session).await {
+        Some(GatewayEvent::ThreadMembership {
+            thread_id, joined, ..
+        }) => assert_eq!((thread_id.as_str(), joined), ("301", true)),
+        other => panic!("unexpected {other:?}"),
+    }
+    let log = log.lock().unwrap();
+    let request = &log.payloads.iter().find(|(_, p)| p["op"] == 8).unwrap().1["d"];
+    assert_eq!(request["guild_id"], json!(["100"]));
+    assert_eq!(request["presences"], false);
+}
+
+#[test]
+fn ready_reads_own_member_permissions_and_threads() {
+    let ready = parse_ready(&json!({
+        "user": {"id": "1", "username": "me", "avatar": "abc"},
+        "guilds": [{
+            "id": "100",
+            "properties": {"name": "Guild", "owner_id": "9"},
+            "roles": [{"id": "100", "name": "@everyone", "permissions": "1024", "position": 0}],
+            "channels": [{
+                "id": "101", "type": 0, "name": "secret",
+                "permission_overwrites": [{"id": "100", "type": 0, "allow": "0", "deny": "1024"}]
+            }],
+            "threads": [{"id": "300", "type": 11, "parent_id": "101", "member": {}}]
+        }],
+        "merged_members": [[{"user_id": "1", "roles": ["5"], "nick": "Me!"}]],
+        "private_channels": []
+    }))
+    .unwrap();
+    let guild = &ready.guilds[0];
+    assert_eq!(ready.user.avatar.as_deref(), Some("abc"));
+    assert_eq!(guild.owner_id.as_deref(), Some("9"));
+    assert_eq!(guild.me.as_ref().unwrap().roles, ["5"]);
+    assert_eq!(guild.roles[0].permissions, 1024);
+    let channels = guild.channels.as_deref().unwrap();
+    let overwrite = &channels[0].permission_overwrites[0];
+    assert_eq!((overwrite.kind, overwrite.deny), (0, 1024));
+    assert!(guild.threads.as_deref().unwrap()[0].joined);
+    // GUILD_UPDATE omits the lists; an omitted list is not an empty one.
+    let update = Guild::parse(
+        &json!({"id": "100", "name": "Renamed", "channels": []}),
+        None,
+    );
+    let update = update.unwrap();
+    assert_eq!(update.channels.as_deref(), Some(&[][..]));
+    assert_eq!(update.threads, None);
 }

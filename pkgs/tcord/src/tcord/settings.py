@@ -22,6 +22,7 @@ TIME_FORMATS = ("24h", "12h")
 DENSITIES = ("cozy", "compact")
 PRESETS = ("standard", "vim", "helix")
 CHANNEL_LIST_WIDTH = (20, 48)
+IMAGE_PROTOCOLS = ("auto", "kitty", "halfblock", "off")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +39,15 @@ class AppearanceSettings:
     message_density: str = "cozy"
     ascii_only: bool = False
     reduced_motion: bool = False
+    #: How images are drawn: auto-detect, kitty placeholders, half-blocks, or not at all.
+    image_protocol: str = "auto"
+    show_avatars: bool = True
+    #: Attachments, embeds, stickers and custom emoji as images.
+    show_images: bool = True
+    #: Play GIFs and animated emoji/stickers on the highlighted message.
+    animate_media: bool = True
+    #: Inside tmux, allow kitty graphics passthrough for Tcord's pane while it runs.
+    tmux_passthrough: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +55,8 @@ class LayoutSettings:
     show_server_rail: bool = True
     show_channel_list: bool = True
     channel_list_width: int = 28
+    #: List channels the account lacks permission to view (they are hidden by default).
+    show_inaccessible_channels: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +119,11 @@ _SECTIONS: dict[str, tuple[type, dict[str, _Check]]] = {
             "message_density": _one_of(*DENSITIES),
             "ascii_only": _is_bool,
             "reduced_motion": _is_bool,
+            "image_protocol": _one_of(*IMAGE_PROTOCOLS),
+            "show_avatars": _is_bool,
+            "show_images": _is_bool,
+            "animate_media": _is_bool,
+            "tmux_passthrough": _is_bool,
         },
     ),
     "layout": (
@@ -115,6 +132,7 @@ _SECTIONS: dict[str, tuple[type, dict[str, _Check]]] = {
             "show_server_rail": _is_bool,
             "show_channel_list": _is_bool,
             "channel_list_width": _width,
+            "show_inaccessible_channels": _is_bool,
         },
     ),
     "navigation": (NavigationSettings, {"preset": _one_of(*PRESETS)}),

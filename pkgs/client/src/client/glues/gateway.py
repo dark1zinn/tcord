@@ -1,6 +1,6 @@
 import tcord_core
 
-from ..models import Channel, GatewayEvent, Guild, ReadySnapshot
+from ..models import Channel, GatewayEvent, Guild, ReadySnapshot, ThreadPage
 from ..protocols import GatewayProtocol
 from . import convert
 
@@ -40,3 +40,12 @@ class Gateway(GatewayProtocol):
     async def private_channels(self) -> list[Channel]:
         channels = await self._engine.fetch_private_channels()
         return [convert.channel(channel) for channel in channels]
+
+    def request_members(self, guild_id: str, user_ids: list[str]) -> None:
+        self._engine.request_members(guild_id, user_ids)
+
+    async def threads(
+        self, channel_id: str, *, archived: bool = False, offset: int = 0
+    ) -> ThreadPage:
+        page = await self._engine.search_threads(channel_id, archived, offset)
+        return convert.thread_page(page)

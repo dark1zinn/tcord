@@ -7,6 +7,7 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use pyo3_async_runtimes::tokio::future_into_py;
 use tcord_engine::{AuthSnapshot, EngineError, MfaMethod, SessionConfig};
 
@@ -57,6 +58,7 @@ struct User {
     id: String,
     username: String,
     global_name: Option<String>,
+    avatar: Option<String>,
     bot: bool,
 }
 
@@ -66,6 +68,7 @@ impl From<tcord_engine::User> for User {
             id: user.id,
             username: user.username,
             global_name: user.global_name,
+            avatar: user.avatar,
             bot: user.bot,
         }
     }
@@ -139,6 +142,37 @@ struct Role {
     id: String,
     name: String,
     color: u32,
+    position: i64,
+    permissions: u64,
+}
+
+impl From<tcord_engine::Role> for Role {
+    fn from(role: tcord_engine::Role) -> Self {
+        Self {
+            id: role.id,
+            name: role.name,
+            color: role.color,
+            position: role.position,
+            permissions: role.permissions,
+        }
+    }
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct PermissionOverwrite {
+    id: String,
+    kind: u8,
+    allow: u64,
+    deny: u64,
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct ThreadMetadata {
+    archived: bool,
+    locked: bool,
+    archive_timestamp: Option<Timestamp>,
 }
 
 #[pyclass(frozen, get_all, module = "tcord_core._native")]
@@ -153,6 +187,11 @@ struct Channel {
     last_message_id: Option<String>,
     topic: Option<String>,
     recipients: Vec<User>,
+    permission_overwrites: Vec<PermissionOverwrite>,
+    owner_id: Option<String>,
+    thread_metadata: Option<ThreadMetadata>,
+    message_count: Option<u32>,
+    joined: bool,
 }
 
 impl From<tcord_engine::Channel> for Channel {
@@ -167,6 +206,44 @@ impl From<tcord_engine::Channel> for Channel {
             last_message_id: channel.last_message_id,
             topic: channel.topic,
             recipients: channel.recipients.into_iter().map(User::from).collect(),
+            permission_overwrites: channel
+                .permission_overwrites
+                .into_iter()
+                .map(|overwrite| PermissionOverwrite {
+                    id: overwrite.id,
+                    kind: overwrite.kind,
+                    allow: overwrite.allow,
+                    deny: overwrite.deny,
+                })
+                .collect(),
+            owner_id: channel.owner_id,
+            thread_metadata: channel.thread_metadata.map(|meta| ThreadMetadata {
+                archived: meta.archived,
+                locked: meta.locked,
+                archive_timestamp: meta.archive_timestamp,
+            }),
+            message_count: channel.message_count,
+            joined: channel.joined,
+        }
+    }
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct Member {
+    user_id: String,
+    nick: Option<String>,
+    avatar: Option<String>,
+    roles: Vec<String>,
+}
+
+impl From<tcord_engine::Member> for Member {
+    fn from(member: tcord_engine::Member) -> Self {
+        Self {
+            user_id: member.user_id,
+            nick: member.nick,
+            avatar: member.avatar,
+            roles: member.roles,
         }
     }
 }
@@ -177,8 +254,11 @@ struct Guild {
     id: String,
     name: String,
     icon: Option<String>,
-    channels: Vec<Channel>,
+    owner_id: Option<String>,
+    channels: Option<Vec<Channel>>,
+    threads: Option<Vec<Channel>>,
     roles: Vec<Role>,
+    me: Option<Member>,
     unavailable: bool,
 }
 
@@ -188,16 +268,15 @@ impl From<tcord_engine::Guild> for Guild {
             id: guild.id,
             name: guild.name,
             icon: guild.icon,
-            channels: guild.channels.into_iter().map(Channel::from).collect(),
-            roles: guild
-                .roles
-                .into_iter()
-                .map(|role| Role {
-                    id: role.id,
-                    name: role.name,
-                    color: role.color,
-                })
-                .collect(),
+            owner_id: guild.owner_id,
+            channels: guild
+                .channels
+                .map(|channels| channels.into_iter().map(Channel::from).collect()),
+            threads: guild
+                .threads
+                .map(|threads| threads.into_iter().map(Channel::from).collect()),
+            roles: guild.roles.into_iter().map(Role::from).collect(),
+            me: guild.me.map(Member::from),
             unavailable: guild.unavailable,
         }
     }
@@ -208,7 +287,51 @@ impl From<tcord_engine::Guild> for Guild {
 struct Attachment {
     filename: String,
     url: String,
+    proxy_url: Option<String>,
     size: u64,
+    content_type: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct EmbedMedia {
+    url: String,
+    proxy_url: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+impl From<tcord_engine::EmbedMedia> for EmbedMedia {
+    fn from(media: tcord_engine::EmbedMedia) -> Self {
+        Self {
+            url: media.url,
+            proxy_url: media.proxy_url,
+            width: media.width,
+            height: media.height,
+        }
+    }
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct Embed {
+    kind: String,
+    title: Option<String>,
+    description: Option<String>,
+    url: Option<String>,
+    image: Option<EmbedMedia>,
+    thumbnail: Option<EmbedMedia>,
+    video: Option<EmbedMedia>,
+}
+
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct Sticker {
+    id: String,
+    name: String,
+    format: u8,
 }
 
 #[pyclass(frozen, get_all, from_py_object, module = "tcord_core._native")]
@@ -244,7 +367,7 @@ struct Message {
     #[pyo3(get)]
     author: User,
     #[pyo3(get)]
-    author_nick: Option<String>,
+    member: Option<Member>,
     #[pyo3(get)]
     content: String,
     #[pyo3(get)]
@@ -262,7 +385,11 @@ struct Message {
     #[pyo3(get)]
     attachments: Vec<Attachment>,
     #[pyo3(get)]
-    embed_titles: Vec<String>,
+    embeds: Vec<Embed>,
+    #[pyo3(get)]
+    stickers: Vec<Sticker>,
+    #[pyo3(get)]
+    thread: Option<Channel>,
     #[pyo3(get)]
     nonce: Option<String>,
     referenced: Option<Box<Message>>,
@@ -283,7 +410,7 @@ impl From<tcord_engine::Message> for Message {
             channel_id: message.channel_id,
             guild_id: message.guild_id,
             author: message.author.into(),
-            author_nick: message.author_nick,
+            member: message.member.map(Member::from),
             content: message.content,
             timestamp: message.timestamp,
             edited_timestamp: message.edited_timestamp,
@@ -297,10 +424,36 @@ impl From<tcord_engine::Message> for Message {
                 .map(|attachment| Attachment {
                     filename: attachment.filename,
                     url: attachment.url,
+                    proxy_url: attachment.proxy_url,
                     size: attachment.size,
+                    content_type: attachment.content_type,
+                    width: attachment.width,
+                    height: attachment.height,
                 })
                 .collect(),
-            embed_titles: message.embed_titles,
+            embeds: message
+                .embeds
+                .into_iter()
+                .map(|embed| Embed {
+                    kind: embed.kind,
+                    title: embed.title,
+                    description: embed.description,
+                    url: embed.url,
+                    image: embed.image.map(EmbedMedia::from),
+                    thumbnail: embed.thumbnail.map(EmbedMedia::from),
+                    video: embed.video.map(EmbedMedia::from),
+                })
+                .collect(),
+            stickers: message
+                .stickers
+                .into_iter()
+                .map(|sticker| Sticker {
+                    id: sticker.id,
+                    name: sticker.name,
+                    format: sticker.format,
+                })
+                .collect(),
+            thread: message.thread.map(|thread| Channel::from(*thread)),
             nonce: message.nonce,
             referenced: message
                 .referenced
@@ -351,6 +504,13 @@ impl From<tcord_engine::gateway::Ready> for Ready {
     }
 }
 
+#[pyclass(frozen, get_all, module = "tcord_core._native")]
+#[derive(Clone)]
+struct ThreadPage {
+    threads: Vec<Channel>,
+    has_more: bool,
+}
+
 /// One gateway event. `kind` selects which of the optional fields are set.
 #[pyclass(frozen, get_all, module = "tcord_core._native")]
 #[derive(Clone, Default)]
@@ -369,6 +529,13 @@ struct GatewayEvent {
     status: Option<String>,
     retry_in: Option<f64>,
     unavailable: Option<bool>,
+    parent_id: Option<String>,
+    channel_ids: Option<Vec<String>>,
+    threads: Option<Vec<Channel>>,
+    members: Option<Vec<Member>>,
+    role: Option<Role>,
+    role_id: Option<String>,
+    joined: Option<bool>,
 }
 
 impl From<tcord_engine::gateway::GatewayEvent> for GatewayEvent {
@@ -447,6 +614,55 @@ impl From<tcord_engine::gateway::GatewayEvent> for GatewayEvent {
                 ..kind("status")
             },
             Event::SessionInvalidated => kind("session_invalidated"),
+            Event::ThreadUpsert(thread) => Self {
+                channel: Some((*thread).into()),
+                ..kind("thread_upsert")
+            },
+            Event::ThreadDelete {
+                id,
+                guild_id,
+                parent_id,
+            } => Self {
+                channel_id: Some(id),
+                guild_id,
+                parent_id,
+                ..kind("thread_delete")
+            },
+            Event::ThreadMembership {
+                thread_id,
+                guild_id,
+                joined,
+            } => Self {
+                channel_id: Some(thread_id),
+                guild_id,
+                joined: Some(joined),
+                ..kind("thread_membership")
+            },
+            Event::ThreadListSync {
+                guild_id,
+                channel_ids,
+                threads,
+            } => Self {
+                guild_id: Some(guild_id),
+                channel_ids,
+                threads: Some(threads.into_iter().map(Channel::from).collect()),
+                ..kind("thread_list_sync")
+            },
+            Event::Members { guild_id, members } => Self {
+                guild_id: Some(guild_id),
+                members: Some(members.into_iter().map(Member::from).collect()),
+                ..kind("members")
+            },
+            Event::RoleUpsert { guild_id, role } => Self {
+                guild_id: Some(guild_id),
+                role: Some(role.into()),
+                ..kind("role_upsert")
+            },
+            Event::RoleDelete { guild_id, role_id } => Self {
+                guild_id: Some(guild_id),
+                role_id: Some(role_id),
+                ..kind("role_delete")
+            },
         }
     }
 }
@@ -468,6 +684,7 @@ impl Session {
         locale="en-US",
         gateway_url=None,
         reconnect_base=None,
+        cache_dir=None,
     ))]
     fn new(
         api_base: Option<String>,
@@ -476,6 +693,7 @@ impl Session {
         locale: &str,
         gateway_url: Option<String>,
         reconnect_base: Option<f64>,
+        cache_dir: Option<std::path::PathBuf>,
     ) -> PyResult<Self> {
         let memory_store = match credential_store {
             "system" => false,
@@ -499,6 +717,8 @@ impl Session {
             memory_store,
             locale: Some(locale.to_owned()),
             reconnect_base,
+            cache_dir,
+            media_hosts: None,
         })
         .map_err(EngineErr)?;
         Ok(Self {
@@ -731,6 +951,53 @@ impl Session {
                 .map_err(EngineErr)?)
         })
     }
+
+    /// Bytes of a Discord CDN or media-proxy URL (cached on disk).
+    fn fetch_media<'py>(&self, py: Python<'py>, url: String) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let bytes = inner.fetch_media(&url).await.map_err(EngineErr)?;
+            Ok(PyBytesOwned(bytes))
+        })
+    }
+
+    fn request_members(&self, guild_id: String, user_ids: Vec<String>) {
+        self.inner.request_members(guild_id, user_ids);
+    }
+
+    #[pyo3(signature = (channel_id, archived=false, offset=0))]
+    fn search_threads<'py>(
+        &self,
+        py: Python<'py>,
+        channel_id: String,
+        archived: bool,
+        offset: u32,
+    ) -> Awaitable<'py> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let page = inner
+                .search_threads(&channel_id, archived, offset)
+                .await
+                .map_err(EngineErr)?;
+            Ok(ThreadPage {
+                threads: page.threads.into_iter().map(Channel::from).collect(),
+                has_more: page.has_more,
+            })
+        })
+    }
+}
+
+/// Owned bytes returned to Python as `bytes` without an intermediate list.
+struct PyBytesOwned(Vec<u8>);
+
+impl<'py> IntoPyObject<'py> for PyBytesOwned {
+    type Target = PyBytes;
+    type Output = Bound<'py, PyBytes>;
+    type Error = std::convert::Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(PyBytes::new(py, &self.0))
+    }
 }
 
 #[pymodule]
@@ -746,13 +1013,20 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<QrUser>()?;
     module.add_class::<User>()?;
     module.add_class::<Role>()?;
+    module.add_class::<PermissionOverwrite>()?;
+    module.add_class::<ThreadMetadata>()?;
     module.add_class::<Channel>()?;
+    module.add_class::<Member>()?;
     module.add_class::<Guild>()?;
     module.add_class::<Attachment>()?;
+    module.add_class::<EmbedMedia>()?;
+    module.add_class::<Embed>()?;
+    module.add_class::<Sticker>()?;
     module.add_class::<MessageReference>()?;
     module.add_class::<Message>()?;
     module.add_class::<ReadState>()?;
     module.add_class::<Ready>()?;
     module.add_class::<GatewayEvent>()?;
+    module.add_class::<ThreadPage>()?;
     Ok(())
 }

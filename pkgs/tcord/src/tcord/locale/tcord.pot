@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tcord VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-20 14:41-0300\n"
+"POT-Creation-Date: 2026-11-22 02:15-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -39,6 +39,9 @@ msgid "@unknown-user"
 msgstr ""
 
 msgid "ASCII-only symbols"
+msgstr ""
+
+msgid "Animate the highlighted message"
 msgstr ""
 
 msgid "Appearance"
@@ -208,6 +211,9 @@ msgstr ""
 msgid "Go to top"
 msgstr ""
 
+msgid "Half blocks"
+msgstr ""
+
 msgid "Help"
 msgstr ""
 
@@ -215,6 +221,9 @@ msgid "Highlight a message first."
 msgstr ""
 
 msgid "INSERT"
+msgstr ""
+
+msgid "Image display"
 msgstr ""
 
 msgid "Invalid code. Try again."
@@ -238,10 +247,19 @@ msgstr ""
 msgid "Keyboard shortcuts"
 msgstr ""
 
+msgid "Kitty graphics"
+msgstr ""
+
 msgid "Language"
 msgstr ""
 
 msgid "Layout"
+msgstr ""
+
+msgid "Let kitty images through tmux"
+msgstr ""
+
+msgid "Load more posts…"
 msgstr ""
 
 msgid "Loading older messages…"
@@ -260,6 +278,9 @@ msgid "Log out of Tcord?"
 msgstr ""
 
 msgid "Login or password is invalid."
+msgstr ""
+
+msgid "Media"
 msgstr ""
 
 msgid "Message density"
@@ -308,6 +329,9 @@ msgid "Next unread channel"
 msgstr ""
 
 msgid "No unread channels here."
+msgstr ""
+
+msgid "Off"
 msgstr ""
 
 msgid "Open"
@@ -421,7 +445,16 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
+msgid "Show avatars"
+msgstr ""
+
 msgid "Show channel list"
+msgstr ""
+
+msgid "Show channels you can't access"
+msgstr ""
+
+msgid "Show images, stickers and emoji"
 msgstr ""
 
 msgid "Show keyboard shortcuts"
@@ -540,10 +573,17 @@ msgstr ""
 msgid "You can only edit your own messages"
 msgstr ""
 
+msgid "You don't have access to this channel."
+msgstr ""
+
 msgid "You don't have permission to do that."
 msgstr ""
 
 msgid "Your session expired. Please log in again."
+msgstr ""
+
+#, python-brace-format
+msgid "[sticker: {name}]"
 msgstr ""
 
 #, python-brace-format
@@ -593,6 +633,12 @@ msgstr ""
 #, python-brace-format
 msgid "{count} person is typing…"
 msgid_plural "Several people are typing…"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-brace-format
+msgid "{icon} {name} · {count} message"
+msgid_plural "{icon} {name} · {count} messages"
 msgstr[0] ""
 msgstr[1] ""
 

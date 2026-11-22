@@ -1,6 +1,6 @@
 import tcord_core
 
-from .glues import Auth, Gateway, Messages
+from .glues import Auth, Gateway, Media, Messages
 from .protocols import ClientProtocol
 
 
@@ -12,6 +12,7 @@ class TcordClient(ClientProtocol):
         self._auth = Auth(engine)
         self._gateway = Gateway(engine)
         self._messages = Messages(engine)
+        self._media = Media(engine)
 
     @property
     def auth(self) -> Auth:
@@ -24,6 +25,10 @@ class TcordClient(ClientProtocol):
     @property
     def messages(self) -> Messages:
         return self._messages
+
+    @property
+    def media(self) -> Media:
+        return self._media
 
     def close(self) -> None:
         self._engine.close()

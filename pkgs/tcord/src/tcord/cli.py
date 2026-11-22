@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 import click
@@ -37,9 +38,20 @@ def main(config: Path | None, debug: bool) -> None:
     from tcord_core import Session
 
     from .app import TcordApp
+    from .terminal import Tmux, restore_on_signals
 
     session = Session(
         credential_store="system" if settings.general.remember_session else "memory",
         locale=i18n.engine_locale(),
+        # Avatars, emoji and attachments (at most 256 MB, oldest files evicted first).
+        cache_dir=platformdirs.user_cache_path("tcord") / "media",
     )
-    TcordApp(TcordClient(session), settings, settings_file, warnings).run()
+    tmux = Tmux.detect(os.environ)
+    if tmux is not None:
+        restore_on_signals(tmux)
+    app = TcordApp(TcordClient(session), settings, settings_file, warnings, tmux=tmux)
+    try:
+        app.run()
+    finally:
+        if tmux is not None:
+            tmux.restore_passthrough()  # undo the pane option Tcord set for kitty images

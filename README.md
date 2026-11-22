@@ -16,9 +16,19 @@ callbacks.
 - **Live chat over the gateway**: servers and DMs from READY, new, edited and deleted
   messages, typing indicators, and unread and mention badges. Read acks are sent when you
   view the latest message. The gateway reconnects and resumes on its own.
-- **Messages**: the history is grouped by author and divided by day, and older messages load
-  as you scroll up. Discord markdown, mentions, custom emoji and `<t:…>` timestamps are
-  rendered.
+- **Messages**: the history is grouped by author with a blank line between groups and
+  divided by day, and older messages load as you scroll up. Authors show their avatar and
+  their nickname in the colour of their highest coloured role. Discord markdown, mentions,
+  slash-command mentions and `<t:…>` timestamps are rendered.
+- **Media**: image attachments, image and GIF embeds (the raw Tenor/GIPHY link is hidden),
+  rich embeds, stickers and custom emoji are drawn in the terminal; an emoji-only message
+  shows them large. GIFs and animated emoji, stickers and avatars play only on the
+  highlighted message, at up to 8 fps.
+- **Servers**: server icons in the rail with Discord-style unread pills and mention badges.
+  Channels you can't view are hidden (or, if you choose, listed dimmed with a lock).
+- **Threads and forums**: active and joined threads appear under their channel, and forum
+  channels list their posts when expanded. Enter on a message that started a thread opens
+  it.
 - **Message actions**: send, reply, edit, delete and retry. A message shows as pending until
   Discord confirms it. A failed send can be retried with the same nonce, so it is never
   duplicated.
@@ -30,9 +40,30 @@ callbacks.
   reduced motion, and a layout that adapts to narrow terminals.
 - **Languages**: English, Brazilian Portuguese and Spanish.
 
-Not supported yet: voice, screen sharing, attachment upload, reactions, threads and forums,
-creating new DMs, and solving CAPTCHAs. When Discord asks for a CAPTCHA, Tcord explains this
-and suggests QR login. Tcord never writes tokens in plaintext.
+Not supported yet: voice, screen sharing, attachment upload, reactions, creating threads or
+forum posts, Sixel and iTerm2 images, creating new DMs, and solving CAPTCHAs. When Discord
+asks for a CAPTCHA, Tcord explains this and suggests QR login. Tcord never writes tokens in
+plaintext.
+
+### Images
+
+With `image_protocol = "auto"`, Tcord picks the renderer from the terminal:
+
+- **kitty** (kitty and Ghostty): sharp images through kitty's Unicode placeholders,
+  including inline custom emoji.
+- **halfblock** (any other truecolor terminal): images drawn with `▀` cells. Inline emoji
+  stay as `:name:` text because they would be unreadable at that size.
+- **off** (`NO_COLOR`, `TERM=dumb` or the Linux console): text only.
+
+Inside tmux, Tcord asks tmux which terminal is attached. When it is kitty or Ghostty, Tcord
+turns on `allow-passthrough` for its own pane while it runs (and restores the previous value
+on exit) and sends kitty images through tmux. Set `tmux_passthrough = false` to keep your tmux
+settings untouched; kitty images are then used only if passthrough is already on, otherwise
+half blocks. GNU screen always uses half blocks.
+
+Media is only downloaded from Discord's CDN and media proxy (redirects included), at most
+16 MB per file, and cached under the platform cache directory (`~/.cache/tcord/media` on
+Linux, up to 256 MB). Kitty images use at most 192 MB of terminal memory.
 
 ## Usage
 
@@ -71,12 +102,18 @@ time_format = "24h"        # 24h | 12h
 show_timestamps = true
 message_density = "cozy"   # cozy | compact
 ascii_only = false
-reduced_motion = false
+reduced_motion = false     # also stops GIF animation
+image_protocol = "auto"    # auto | kitty | halfblock | off
+show_avatars = true
+show_images = true         # attachments, embeds, stickers and custom emoji
+animate_media = true       # animate GIFs on the highlighted message
+tmux_passthrough = true    # in tmux: allow kitty graphics passthrough for Tcord's pane
 
 [layout]
 show_server_rail = true
 show_channel_list = true
 channel_list_width = 28    # 20..48
+show_inaccessible_channels = false  # list channels you can't view, dimmed and locked
 
 [navigation]
 preset = "standard"        # standard | vim | helix
@@ -98,10 +135,10 @@ syntax. `F1` inside the app always shows the bindings currently in effect.
 
 | Path | Role |
 |---|---|
-| `crates/tcord-engine` | Pure-Rust engine on Tokio:<br>- auth state machine (password, MFA, QR remote-auth v2, session restore)<br>- keyring credential store<br>- REST client with rate-limit buckets and retries<br>- gateway (zlib-stream, heartbeat, resume, op 37 subscriptions)<br>- web-client identity headers |
+| `crates/tcord-engine` | Pure-Rust engine on Tokio:<br>- auth state machine (password, MFA, QR remote-auth v2, session restore)<br>- keyring credential store<br>- REST client with rate-limit buckets and retries<br>- gateway (zlib-stream, heartbeat, resume, op 37 subscriptions, member requests, threads)<br>- media fetcher limited to Discord's CDN hosts, with a size-capped disk cache<br>- web-client identity headers |
 | `pkgs/tcord-core` | Thin PyO3 bindings (`tcord_core._native`) that expose engine calls as asyncio awaitables, plus typed stubs and exception classes. |
-| `pkgs/client` | UI-agnostic Python layer:<br>- typed models and protocols<br>- glues to the native module<br>- `ChatStore`, which turns READY and gateway events into chat state and change notifications |
-| `pkgs/tcord` | Textual application: screens, widgets, keymaps, settings, themes, i18n and the `tcord` CLI. |
+| `pkgs/client` | UI-agnostic Python layer:<br>- typed models and protocols<br>- glues to the native module<br>- `ChatStore`, which turns READY and gateway events into chat state and change notifications, and computes channel permissions from roles and overwrites<br>- Discord CDN URL helpers |
+| `pkgs/tcord` | Textual application: screens, widgets, keymaps, settings, themes, i18n, the in-house image renderer (kitty placeholders and half blocks, built on Pillow) and the `tcord` CLI. |
 
 The Discord build number and Chrome version that Tcord identifies as are pinned in
 `crates/tcord-engine/client-identity.json`. The daily `Client identity` workflow

@@ -13,7 +13,7 @@ flate2 = "1"
 futures-util = "0.3"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
-reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "rustls-tls", "stream"] }
 rsa = "0.10"
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -23,6 +23,11 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
+[features]
+# Lets integration tests fetch media from local servers. Never enabled by tcord-core.
+test-hosts = []
+
 [dev-dependencies]
+tcord-engine = { path = ".", features = ["test-hosts"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 wiremock = "0.6"

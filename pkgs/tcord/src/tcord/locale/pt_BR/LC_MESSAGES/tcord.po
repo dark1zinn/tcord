@@ -41,6 +41,9 @@ msgstr "@usuário-desconhecido"
 msgid "ASCII-only symbols"
 msgstr "Apenas símbolos ASCII"
 
+msgid "Animate the highlighted message"
+msgstr "Animar a mensagem destacada"
+
 msgid "Appearance"
 msgstr "Aparência"
 
@@ -117,8 +120,8 @@ msgid ""
 "Couldn't save your session to the system keyring; you'll need to log in "
 "again next time."
 msgstr ""
-"Não foi possível salvar sua sessão no chaveiro do sistema; você precisará "
-"entrar novamente da próxima vez."
+"Não foi possível salvar sua sessão no chaveiro do sistema; você precisará"
+" entrar novamente da próxima vez."
 
 msgid "Cozy"
 msgstr "Confortável"
@@ -145,13 +148,13 @@ msgid ""
 "Discord asked for a CAPTCHA. CAPTCHA solving isn't supported yet — try QR"
 " login or retry later."
 msgstr ""
-"O Discord pediu um CAPTCHA. A resolução de CAPTCHA ainda não é suportada — "
-"tente entrar com QR code ou tente novamente mais tarde."
+"O Discord pediu um CAPTCHA. A resolução de CAPTCHA ainda não é suportada "
+"— tente entrar com QR code ou tente novamente mais tarde."
 
 msgid "Discord requires phone verification. Finish it in the official app first."
 msgstr ""
-"O Discord exige verificação por telefone. Conclua-a primeiro no aplicativo "
-"oficial."
+"O Discord exige verificação por telefone. Conclua-a primeiro no "
+"aplicativo oficial."
 
 msgid "Edit last message (empty composer)"
 msgstr "Editar a última mensagem (campo vazio)"
@@ -214,6 +217,9 @@ msgstr "Ir para o fim"
 msgid "Go to top"
 msgstr "Ir para o início"
 
+msgid "Half blocks"
+msgstr "Meios-blocos"
+
 msgid "Help"
 msgstr "Ajuda"
 
@@ -222,6 +228,9 @@ msgstr "Selecione uma mensagem primeiro."
 
 msgid "INSERT"
 msgstr "INSERIR"
+
+msgid "Image display"
+msgstr "Exibição de imagens"
 
 msgid "Invalid code. Try again."
 msgstr "Código inválido. Tente novamente."
@@ -239,16 +248,27 @@ msgstr "Predefinição de teclas"
 
 #, python-brace-format
 msgid "Key {key} for {action} conflicts with {other}; override ignored"
-msgstr "A tecla {key} para {action} conflita com {other}; a personalização foi ignorada"
+msgstr ""
+"A tecla {key} para {action} conflita com {other}; a personalização foi "
+"ignorada"
 
 msgid "Keyboard shortcuts"
 msgstr "Atalhos de teclado"
+
+msgid "Kitty graphics"
+msgstr "Gráficos do kitty"
 
 msgid "Language"
 msgstr "Idioma"
 
 msgid "Layout"
 msgstr "Layout"
+
+msgid "Let kitty images through tmux"
+msgstr "Deixar as imagens do kitty passarem pelo tmux"
+
+msgid "Load more posts…"
+msgstr "Carregar mais publicações…"
 
 msgid "Loading older messages…"
 msgstr "Carregando mensagens antigas…"
@@ -267,6 +287,9 @@ msgstr "Sair do Tcord?"
 
 msgid "Login or password is invalid."
 msgstr "Login ou senha inválidos."
+
+msgid "Media"
+msgstr "Mídia"
 
 msgid "Message density"
 msgstr "Densidade das mensagens"
@@ -315,6 +338,9 @@ msgstr "Próximo canal não lido"
 
 msgid "No unread channels here."
 msgstr "Nenhum canal não lido aqui."
+
+msgid "Off"
+msgstr "Desligado"
 
 msgid "Open"
 msgstr "Abrir"
@@ -427,8 +453,17 @@ msgstr "Enviar código por SMS"
 msgid "Settings"
 msgstr "Configurações"
 
+msgid "Show avatars"
+msgstr "Mostrar avatares"
+
 msgid "Show channel list"
 msgstr "Mostrar lista de canais"
+
+msgid "Show channels you can't access"
+msgstr "Mostrar canais que você não pode acessar"
+
+msgid "Show images, stickers and emoji"
+msgstr "Mostrar imagens, figurinhas e emojis"
 
 msgid "Show keyboard shortcuts"
 msgstr "Mostrar atalhos de teclado"
@@ -546,11 +581,18 @@ msgstr "Você só pode excluir as suas próprias mensagens"
 msgid "You can only edit your own messages"
 msgstr "Você só pode editar as suas próprias mensagens"
 
+msgid "You don't have access to this channel."
+msgstr "Você não tem acesso a este canal."
+
 msgid "You don't have permission to do that."
 msgstr "Você não tem permissão para fazer isso."
 
 msgid "Your session expired. Please log in again."
 msgstr "Sua sessão expirou. Entre novamente."
+
+#, python-brace-format
+msgid "[sticker: {name}]"
+msgstr "[figurinha: {name}]"
 
 #, python-brace-format
 msgid "in {n} day"
@@ -603,6 +645,12 @@ msgstr[0] "{count} pessoa está digitando…"
 msgstr[1] "Várias pessoas estão digitando…"
 
 #, python-brace-format
+msgid "{icon} {name} · {count} message"
+msgid_plural "{icon} {name} · {count} messages"
+msgstr[0] "{icon} {name} · {count} mensagem"
+msgstr[1] "{icon} {name} · {count} mensagens"
+
+#, python-brace-format
 msgid "{n} day ago"
 msgid_plural "{n} days ago"
 msgstr[0] "há {n} dia"
@@ -641,3 +689,4 @@ msgstr[1] "há {n} anos"
 #, python-brace-format
 msgid "{path} is not valid TOML. Overwrite it with the new settings?"
 msgstr "{path} não é um TOML válido. Sobrescrever com as novas configurações?"
+
