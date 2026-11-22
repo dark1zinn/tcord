@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures_util::StreamExt;
@@ -19,8 +20,6 @@ use crate::identity;
 pub const MAX_MEDIA_BYTES: usize = 16 * 1024 * 1024;
 /// Total cache size before the least recently used files are evicted.
 const CACHE_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
-/// Evict after this many writes (scanning the directory is not free).
-const EVICT_EVERY: u32 = 32;
 /// Redirects followed for one download (each target is host-checked).
 const MAX_REDIRECTS: usize = 5;
 /// Signed attachment parameters; they change on every refresh, so they are not part of the key.
@@ -65,7 +64,11 @@ pub struct MediaCache {
     client: Client,
     dir: Option<PathBuf>,
     policy: HostPolicy,
+    /// Numbers temporary files.
     writes: AtomicU32,
+    /// Bytes in the cache directory (`None` until first measured).
+    usage: Arc<Mutex<Option<u64>>>,
+    limit: u64,
 }
 
 impl MediaCache {
@@ -92,6 +95,8 @@ impl MediaCache {
             dir,
             policy,
             writes: AtomicU32::new(0),
+            usage: Arc::new(Mutex::new(None)),
+            limit: CACHE_LIMIT_BYTES,
         })
     }
 
@@ -158,7 +163,8 @@ impl MediaCache {
 
     async fn store(&self, path: PathBuf, bytes: Vec<u8>) {
         let write = self.writes.fetch_add(1, Ordering::Relaxed);
-        let evict = write % EVICT_EVERY == EVICT_EVERY - 1;
+        let usage = Arc::clone(&self.usage);
+        let limit = self.limit;
         // Cache failures only cost a re-download, so they are ignored.
         let _ = tokio::task::spawn_blocking(move || {
             let Some(dir) = path.parent() else {
@@ -169,14 +175,15 @@ impl MediaCache {
             }
             // Concurrent fetches of one URL each write their own file; the rename is atomic.
             let temporary = path.with_extension(format!("{}-{write}.part", std::process::id()));
-            if std::fs::write(&temporary, &bytes).is_ok()
-                && std::fs::rename(&temporary, &path).is_err()
-            {
+            if std::fs::write(&temporary, &bytes).is_err() {
+                return;
+            }
+            let replaced = std::fs::metadata(&path).map_or(0, |metadata| metadata.len());
+            if std::fs::rename(&temporary, &path).is_err() {
                 let _ = std::fs::remove_file(&temporary);
+                return;
             }
-            if evict {
-                evict_oldest(dir, CACHE_LIMIT_BYTES);
-            }
+            enforce_budget(&usage, dir, bytes.len() as u64, replaced, limit);
         })
         .await;
     }
@@ -213,11 +220,31 @@ async fn read_cached(path: &Path) -> Option<Vec<u8>> {
     .flatten()
 }
 
-fn evict_oldest(dir: &Path, limit: u64) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
+/// Account for a cache file of `added` bytes that replaced `removed` bytes in `dir`, evicting
+/// the oldest files once the cache is over `limit`.
+///
+/// The directory is scanned once to learn its size and again only when the budget is
+/// exceeded, so every write is checked without listing the cache each time.
+fn enforce_budget(usage: &Mutex<Option<u64>>, dir: &Path, added: u64, removed: u64, limit: u64) {
+    let Ok(mut usage) = usage.lock() else {
         return;
     };
-    let mut files: Vec<(SystemTime, u64, PathBuf)> = entries
+    let total = match *usage {
+        Some(total) => total.saturating_sub(removed).saturating_add(added),
+        None => cache_files(dir).iter().map(|(_, size, _)| size).sum(),
+    };
+    *usage = Some(if total > limit {
+        evict_oldest(dir, limit)
+    } else {
+        total
+    });
+}
+
+fn cache_files(dir: &Path) -> Vec<(SystemTime, u64, PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let metadata = entry.metadata().ok()?;
@@ -226,11 +253,14 @@ fn evict_oldest(dir: &Path, limit: u64) {
             }
             Some((metadata.modified().ok()?, metadata.len(), entry.path()))
         })
-        .collect();
+        .collect()
+}
+
+/// Remove the least recently used files until at most `limit` bytes remain (files that
+/// cannot be removed are skipped). Returns the bytes left.
+fn evict_oldest(dir: &Path, limit: u64) -> u64 {
+    let mut files = cache_files(dir);
     let mut total: u64 = files.iter().map(|(_, size, _)| size).sum();
-    if total <= limit {
-        return;
-    }
     files.sort_by_key(|(modified, _, _)| *modified);
     for (_, size, path) in files {
         if total <= limit {
@@ -240,6 +270,7 @@ fn evict_oldest(dir: &Path, limit: u64) {
             total -= size;
         }
     }
+    total
 }
 
 #[cfg(test)]
@@ -274,5 +305,55 @@ mod tests {
         ] {
             assert!(!policy.allows(&Url::parse(denied).unwrap()), "{denied}");
         }
+    }
+
+    fn temp_cache(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tcord-budget-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write(dir: &Path, name: &str, size: usize, age_secs: u64) {
+        let path = dir.join(name);
+        std::fs::write(&path, vec![0u8; size]).unwrap();
+        let file = std::fs::File::options().append(true).open(&path).unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(age_secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn every_write_stays_within_the_budget() {
+        let dir = temp_cache("each");
+        let usage = Mutex::new(None);
+        write(&dir, "old", 600, 30);
+        enforce_budget(&usage, &dir, 600, 0, 1000);
+        assert_eq!(*usage.lock().unwrap(), Some(600)); // first write measures, no eviction
+        write(&dir, "new", 600, 0);
+        enforce_budget(&usage, &dir, 600, 0, 1000); // the second write already overflows
+        assert!(!dir.join("old").exists());
+        assert!(dir.join("new").exists());
+        assert_eq!(*usage.lock().unwrap(), Some(600));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rewriting_a_file_counts_only_the_difference() {
+        let dir = temp_cache("rewrite");
+        let usage = Mutex::new(Some(900));
+        write(&dir, "a", 900, 0);
+        enforce_budget(&usage, &dir, 900, 900, 1000);
+        assert_eq!(*usage.lock().unwrap(), Some(900));
+        assert!(dir.join("a").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn unremovable_files_do_not_fail_eviction() {
+        let dir = temp_cache("missing");
+        let usage = Mutex::new(Some(5000)); // stale count: the files are already gone
+        enforce_budget(&usage, &dir, 10, 0, 1000);
+        assert_eq!(*usage.lock().unwrap(), Some(0));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
