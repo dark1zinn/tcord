@@ -3,7 +3,7 @@
 //!
 //! Reference: <https://docs.discord.food/gateway/using-gateway>.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -204,6 +204,7 @@ impl GatewayHandle {
             seq: None,
             subscribed: HashSet::new(),
             last_identify: None,
+            members: MemberRequests::default(),
         };
         tokio::spawn(runner.run());
         let ready = ready_rx.await.map_err(|_| {
@@ -273,6 +274,7 @@ struct Runner {
     seq: Option<u64>,
     subscribed: HashSet<String>,
     last_identify: Option<Instant>,
+    members: MemberRequests,
 }
 
 impl Runner {
@@ -406,14 +408,9 @@ impl Runner {
                         }
                     }
                     Command::RequestMembers { guild_id, user_ids } => {
-                        // Discord caps a by-id request at 100 users.
-                        for chunk in user_ids.chunks(100) {
-                            let payload = json!({
-                                "guild_id": [guild_id],
-                                "user_ids": chunk,
-                                "presences": false,
-                            });
-                            let _ = self.send(&mut socket, 8, payload).await;
+                        self.members.push(guild_id, user_ids);
+                        if self.flush_member_requests(&mut socket).await.is_err() {
+                            return Outcome::Resume;  // retried after reconnecting
                         }
                     }
                 },
@@ -521,10 +518,16 @@ impl Runner {
     }
 
     async fn send(&self, socket: &mut Socket, op: u8, d: Value) -> Result<()> {
-        socket
-            .send(WsMessage::Text(json!({"op": op, "d": d}).to_string()))
-            .await
-            .map_err(|error| EngineError::Network(error.to_string()))
+        send(socket, op, d).await
+    }
+
+    /// Send member requests queued while the socket was down or that failed before.
+    async fn flush_member_requests(&mut self, socket: &mut Socket) -> Result<()> {
+        while let Some(payload) = self.members.next() {
+            send(socket, 8, payload).await?;
+            self.members.sent();
+        }
+        Ok(())
     }
 
     async fn emit(&self, event: GatewayEvent) {
@@ -564,6 +567,7 @@ impl Runner {
                     let guilds: Vec<String> = self.subscribed.iter().cloned().collect();
                     let _ = self.send(socket, 37, subscription(&guilds)).await;
                 }
+                let _ = self.flush_member_requests(socket).await;
                 match self.ready.take() {
                     Some(first) => {
                         let _ = first.send(Ok(ready));
@@ -574,6 +578,7 @@ impl Runner {
             "RESUMED" => {
                 *failures = 0;
                 self.status(ConnectionStatus::Connected, None).await;
+                let _ = self.flush_member_requests(socket).await;
             }
             "MESSAGE_CREATE" => {
                 if let Ok(message) = Message::from_value(&parse()?) {
@@ -834,6 +839,13 @@ async fn close(socket: &mut Socket, code: u16) {
     let _ = socket.close(Some(frame)).await;
 }
 
+async fn send(socket: &mut Socket, op: u8, d: Value) -> Result<()> {
+    socket
+        .send(WsMessage::Text(json!({"op": op, "d": d}).to_string()))
+        .await
+        .map_err(|error| EngineError::Network(error.to_string()))
+}
+
 fn subscription(guilds: &[String]) -> Value {
     let entries: serde_json::Map<String, Value> = guilds
         .iter()
@@ -1003,5 +1015,67 @@ impl Inflater {
         String::from_utf8(std::mem::take(&mut self.output))
             .map(Some)
             .map_err(|error| EngineError::Protocol(error.to_string()))
+    }
+}
+
+/// Member requests (op 8) waiting for the socket, in chunks Discord accepts.
+#[derive(Default)]
+struct MemberRequests {
+    queue: VecDeque<(String, Vec<String>)>,
+}
+
+impl MemberRequests {
+    fn push(&mut self, guild_id: String, user_ids: Vec<String>) {
+        // Discord caps a by-id request at 100 users.
+        for chunk in user_ids.chunks(100) {
+            self.queue.push_back((guild_id.clone(), chunk.to_vec()));
+        }
+    }
+
+    /// The oldest unsent chunk as an op 8 payload; it stays queued until [`Self::sent`].
+    fn next(&self) -> Option<Value> {
+        self.queue.front().map(|(guild_id, user_ids)| {
+            json!({"guild_id": [guild_id], "user_ids": user_ids, "presences": false})
+        })
+    }
+
+    /// The chunk returned by [`Self::next`] reached the socket.
+    fn sent(&mut self) {
+        self.queue.pop_front();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drain like the runner does, with a socket that fails on the `fail_at`-th send.
+    fn flush(requests: &mut MemberRequests, fail_at: Option<usize>) -> Vec<Value> {
+        let mut sent = Vec::new();
+        while let Some(payload) = requests.next() {
+            if fail_at == Some(sent.len()) {
+                break;
+            }
+            sent.push(payload);
+            requests.sent();
+        }
+        sent
+    }
+
+    #[test]
+    fn failed_member_chunks_stay_queued_and_sent_ones_do_not_repeat() {
+        let mut requests = MemberRequests::default();
+        requests.push("100".into(), (0..250).map(|id| id.to_string()).collect());
+        assert_eq!(flush(&mut requests, Some(1)).len(), 1);
+        assert_eq!(requests.queue.len(), 2);
+
+        let resent = flush(&mut requests, None);
+        let first_ids: Vec<_> = resent
+            .iter()
+            .map(|payload| payload["user_ids"][0].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(first_ids, [Some("100".to_owned()), Some("200".to_owned())]);
+        assert_eq!(resent[0]["guild_id"], json!(["100"]));
+        assert!(requests.next().is_none());
     }
 }
