@@ -116,6 +116,7 @@ class ChatScreen(Screen):
         self.show_sidebar = settings.layout.show_channel_list
         self.query_one("#sidebar").styles.width = settings.layout.channel_list_width
         self._configure_rail()
+        self._show_channels()  # e.g. show_inaccessible_channels changed
         self._apply_layout()
         self._update_mode()
         if self.active_channel is not None:
@@ -146,6 +147,7 @@ class ChatScreen(Screen):
         if self.active_guild is not None and self.active_guild not in store.guilds:
             self.active_guild = None
         self.query_one(ServerRail).rebuild(self.active_guild)
+        self.query_one(ChannelTree).reset_forums()  # READY dropped the fetched posts
         self._show_channels()
         me = store.me
         self.query_one("#user-panel", Static).update(me.display_name if me else "")
@@ -195,7 +197,7 @@ class ChatScreen(Screen):
                 case ConnectionStatusChanged(status, retry_in):
                     self.query_one(StatusBar).connection = connection_text(status, retry_in)
                 case MembersChanged(guild_id):
-                    if self.active_channel is not None and guild_id == self.active_guild:
+                    if self.active_channel is not None and guild_id == self._channel_guild():
                         self._show_history(keep_position=True)
         if active_messages:
             self._messages_changed(active_messages)
@@ -354,13 +356,18 @@ class ChatScreen(Screen):
 
     def _request_authors(self, messages: Iterable[MessageInfo]) -> None:
         """Ask for members missing from the cache (their nicknames and role colours)."""
-        guild_id = self.active_guild
+        guild_id = self._channel_guild()
         if guild_id is None:
             return
         authors = [message.author.id for message in messages if not message.pending]
         missing = self.tcord.store.missing_members(guild_id, authors)
         if missing:
             self.tcord.client.gateway.request_members(guild_id, missing)
+
+    def _channel_guild(self) -> str | None:
+        """Guild of the open channel (the sidebar may be showing another guild)."""
+        channel = self.tcord.store.channels.get(self.active_channel or "")
+        return channel.guild_id if channel is not None else None
 
     @work(exclusive=True, group="history", exit_on_error=False)
     async def _fetch_history(self, channel_id: str) -> None:
@@ -639,7 +646,7 @@ class ChatScreen(Screen):
         event.stop()
         store = self.tcord.store
         if event.thread.id not in store.channels:
-            store.set_threads([event.thread])
+            self.apply_changes(store.set_threads([event.thread]))  # list it in the tree too
         self.open_channel(event.thread.id)
         self.query_one(Composer).focus()
 

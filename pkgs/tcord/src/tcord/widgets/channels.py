@@ -271,3 +271,10 @@ class ChannelTree(Tree[str]):
             node = self._channel_nodes.get(forum_id)
             if node is not None:
                 node.collapse()
+
+    def reset_forums(self) -> None:
+        """Forget fetched forum pages (the store lost the posts, e.g. after READY)."""
+        self._forum_offsets.clear()
+        self._forum_more.clear()
+        self._forum_loading.clear()
+        self._expanded_forums.clear()

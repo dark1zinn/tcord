@@ -5,9 +5,19 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from client.models import Channel, ChannelKind, Member, PermissionOverwrite, Role, ThreadUpserted
+from client.models import (
+    Channel,
+    ChannelKind,
+    Member,
+    MembersLoaded,
+    PermissionOverwrite,
+    Ready,
+    Role,
+    ThreadUpserted,
+)
 from conftest import settle, wait_until
-from fakes import GENERAL, GUILD_ID, ME, RANDOM, FakeClient, make_message
+from fakes import FRIEND, GENERAL, GUILD_ID, ME, RANDOM, FakeClient, make_message
+from rich.console import Console
 from tcord.app import TcordApp
 from tcord.screens.chat import ChatScreen
 from tcord.settings import LayoutSettings, NavigationSettings, Settings
@@ -171,3 +181,57 @@ async def test_opening_a_thread_starter_switches_to_the_thread(preset: str, key:
         messages.highlighted = messages.get_option_index(f"m{started.id}")
         await pilot.press(key)
         await wait_until(pilot, lambda: chat.active_channel == THREAD)
+        tree = chat.query_one(ChannelTree)
+        await wait_until(pilot, lambda: THREAD in tree._channel_nodes)  # listed under #general
+
+
+async def test_forum_pages_reload_after_ready() -> None:
+    client = FakeClient()
+    with_access_rules(client)
+    client.gateway.thread_pages[FORUM] = [thread(POST, FORUM, "How do I log in?")]
+    app = TcordApp(client)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, tree = await guild_tree(app, pilot)
+        tree.highlight_channel(FORUM)
+        tree.focus()
+        await pilot.press("enter")
+        await wait_until(pilot, lambda: any("How do I log in?" in lab for lab in labels(tree)))
+        client.gateway.push(Ready(client.gateway.snapshot))  # re-identify: posts are gone
+        await wait_until(pilot, lambda: not any("How do I log in?" in lab for lab in labels(tree)))
+        tree.highlight_channel(FORUM)
+        await pilot.press("enter")
+        await wait_until(pilot, lambda: any("How do I log in?" in lab for lab in labels(tree)))
+        assert client.gateway.thread_calls == [(FORUM, 0), (FORUM, 0)]
+
+
+async def test_toggling_inaccessible_channels_refreshes_the_tree() -> None:
+    client = FakeClient()
+    with_access_rules(client)
+    app = TcordApp(client)
+    async with app.run_test(size=(120, 36)) as pilot:
+        _, tree = await guild_tree(app, pilot)
+        assert not any("random" in label for label in labels(tree))
+        layout = replace(app.settings.layout, show_inaccessible_channels=True)
+        app.apply_settings(replace(app.settings, layout=layout))
+        await settle(pilot)
+        assert any("random" in label for label in labels(tree))
+
+
+async def test_member_updates_redraw_the_open_channel_while_browsing_dms() -> None:
+    client = FakeClient()
+    app = TcordApp(client)
+    async with app.run_test(size=(120, 36)) as pilot:
+        chat, _ = await guild_tree(app, pilot)
+        chat.open_channel(GENERAL)
+        messages = chat.query_one(MessageList)
+        await wait_until(pilot, lambda: len(messages.messages) == 30)
+        chat.choose_guild(None)  # the sidebar shows DMs; #general stays open
+        client.gateway.push(MembersLoaded(GUILD_ID, (Member(FRIEND.id, nick="Pal"),)))
+        option = f"m{make_message(29).id}"  # authored by Friend
+
+        def shown() -> str:
+            console = Console(width=80, record=True, color_system=None)
+            console.print(messages.get_option(option).prompt)
+            return console.export_text()
+
+        await wait_until(pilot, lambda: "Pal" in shown())
