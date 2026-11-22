@@ -49,14 +49,21 @@ plaintext.
 
 With `image_protocol = "auto"`, Tcord picks the renderer from the terminal:
 
-- **kitty** (kitty and Ghostty, outside tmux/screen): sharp images through kitty's Unicode
-  placeholders, including inline custom emoji.
+- **kitty** (kitty and Ghostty): sharp images through kitty's Unicode placeholders,
+  including inline custom emoji.
 - **halfblock** (any other truecolor terminal): images drawn with `▀` cells. Inline emoji
   stay as `:name:` text because they would be unreadable at that size.
 - **off** (`NO_COLOR`, `TERM=dumb` or the Linux console): text only.
 
-Media is only downloaded from Discord's CDN and media proxy, at most 16 MB per file, and
-cached under the platform cache directory (`~/.cache/tcord/media` on Linux, up to 256 MB).
+Inside tmux, Tcord asks tmux which terminal is attached. When it is kitty or Ghostty, Tcord
+turns on `allow-passthrough` for its own pane while it runs (and restores the previous value
+on exit) and sends kitty images through tmux. Set `tmux_passthrough = false` to keep your tmux
+settings untouched; kitty images are then used only if passthrough is already on, otherwise
+half blocks. GNU screen always uses half blocks.
+
+Media is only downloaded from Discord's CDN and media proxy (redirects included), at most
+16 MB per file, and cached under the platform cache directory (`~/.cache/tcord/media` on
+Linux, up to 256 MB). Kitty images use at most 192 MB of terminal memory.
 
 ## Usage
 
@@ -100,6 +107,7 @@ image_protocol = "auto"    # auto | kitty | halfblock | off
 show_avatars = true
 show_images = true         # attachments, embeds, stickers and custom emoji
 animate_media = true       # animate GIFs on the highlighted message
+tmux_passthrough = true    # in tmux: allow kitty graphics passthrough for Tcord's pane
 
 [layout]
 show_server_rail = true
