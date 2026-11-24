@@ -143,8 +143,8 @@ syntax. `F1` inside the app always shows the bindings currently in effect.
 The Discord build number and Chrome version that Tcord identifies as are pinned in
 `crates/tcord-engine/client-identity.json`. The daily `Client identity` workflow
 (`.github/workflows/client-identity.yml`) refreshes them and opens a pull request when they
-change. Set the optional `CLIENT_IDENTITY_PR_TOKEN` secret so CI also runs on that pull
-request.
+change, then starts CI on it. This needs the repository setting **Settings → Actions → General
+→ Allow GitHub Actions to create and approve pull requests**.
 
 ## Development
 
