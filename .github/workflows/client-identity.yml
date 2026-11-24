@@ -1,7 +1,7 @@
 # Scheduled workflows run only from the default branch.
 # Opening the PR with GITHUB_TOKEN needs the repository setting "Allow GitHub Actions to create
-# and approve pull requests" (Settings → Actions → General). A PR opened that way triggers no
-# other workflow, so the last step dispatches CI on the PR branch.
+# and approve pull requests" (Settings → Actions → General). CI on a PR opened by
+# github-actions[bot] waits for a maintainer to approve the run on the PR page.
 name: Client identity
 
 on:
@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write # dispatch CI on the generated branch
   contents: write
   pull-requests: write
 
@@ -36,7 +35,6 @@ jobs:
         run: python scripts/update_client_identity.py --write
 
       - name: Open pull request
-        id: pr
         if: steps.check.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
@@ -58,11 +56,3 @@ jobs:
             - Build number: JavaScript assets referenced by https://discord.com/login
             - Chrome version: https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channels/stable/versions
           add-paths: crates/tcord-engine/client-identity.json
-
-      # Events caused by GITHUB_TOKEN (like opening this PR) start no workflows, except
-      # workflow_dispatch: run CI on the branch so its checks show up on the PR.
-      - name: Run CI on the pull request branch
-        if: contains(fromJSON('["created", "updated"]'), steps.pr.outputs.pull-request-operation)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref chore/client-identity

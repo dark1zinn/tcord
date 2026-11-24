@@ -4,8 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  # Started by the client identity workflow on its PR branch (PRs it opens trigger nothing).
-  workflow_dispatch:
 
 permissions:
   contents: read
