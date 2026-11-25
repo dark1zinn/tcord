@@ -6,7 +6,7 @@ name: Client identity
 
 on:
   schedule:
-    - cron: "23 5 * * *"
+    - cron: "23 5 * * 1" # weekly, Mondays 05:23 UTC
   workflow_dispatch:
 
 permissions:

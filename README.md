@@ -141,7 +141,7 @@ syntax. `F1` inside the app always shows the bindings currently in effect.
 | `pkgs/tcord` | Textual application: screens, widgets, keymaps, settings, themes, i18n, the in-house image renderer (kitty placeholders and half blocks, built on Pillow) and the `tcord` CLI. |
 
 The Discord build number and Chrome version that Tcord identifies as are pinned in
-`crates/tcord-engine/client-identity.json`. The daily `Client identity` workflow
+`crates/tcord-engine/client-identity.json`. The weekly `Client identity` workflow
 (`.github/workflows/client-identity.yml`) refreshes them and opens a pull request when they
 change. This needs the repository setting **Settings → Actions → General → Allow GitHub
 Actions to create and approve pull requests**. CI on that bot-created pull request starts once
